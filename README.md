@@ -1,69 +1,64 @@
-# Polymarket 上海最高温研究与交易决策平台
+# Polymarket Shanghai Highest Temperature Research & Trading Decision Platform
 
-单用户、只读、交易辅助平台（不自动下单、不接钱包、不接私钥）。
+A single-user, read-only decision assistant for Polymarket Shanghai daily-high-temperature markets.
 
-核心输出：
+This system does **not** auto-trade, does **not** connect wallets, and does **not** use private keys.
+
+Core outputs:
 
 - `Decision` (`BUY / WATCH / PASS`)
 - `Position`
-- `Reason`（中英双语）
+- `Reason`
 
-## 当前版本重点
+## Current Scope
 
-- 自动抓取上海最高温盘口（优先“当日仍在交易”的盘口；若当日已关闭再切次日）
-- 盘口、模型、EV、仓位建议一体化展示
-- Wunderground 口径结算抓取（历史/前一日）
-- 前一日多源预测偏差记录（用于持续优化）
-- 页面支持中英切换：`中文 / EN`
+- City scope: `Shanghai` only
+- Resolution standard: `Shanghai Pudong International Airport Station (ZSPD)`
+- Resolution source: Wunderground rules/path as specified by Polymarket market rules
 
-## 核心原则
+## Core Principle
 
-系统目标不是“做天气站”，而是辅助判断：
+This platform is not a generic weather app. It is a market-resolution research tool:
 
 `Polymarket rules -> Resolution Station -> Resolution Source -> Final Value`
 
-页面明确提示：辅助天气数据不是最终结算依据。
+Auxiliary weather feeds are used for estimation only and are clearly labeled as non-final settlement data.
 
-## 技术栈
+## Tech Stack
 
-- Next.js App Router
+- Next.js (App Router)
 - TypeScript
-- TailwindCSS
+- Tailwind CSS
 - shadcn/ui
 - Prisma + SQLite
 - Recharts
 - Zod
 - date-fns
 
-## 单城市策略
+## Key Features
 
-当前只支持：`Shanghai`。
+- Real-time Polymarket market board for Shanghai highest-temperature events
+- Automatic market selection with trading-day priority:
+  - Prefer today's Shanghai market if still tradable
+  - Switch to tomorrow only when today's market is closed/inactive
+- Multi-source weather assist integration
+- Model probability + market price + EV output
+- Position sizing and risk-adjusted decision output
+- Snapshot logging for replay/review
+- Historical source-bias tracking (forecast vs settled value)
+- Bilingual UI support (`?lang=zh` / `?lang=en`)
 
-## 自动盘口选择（重要）
+## Real-Time Decision Mode
 
-默认行为（已修正为交易日优先）：
+Default behavior is `realtime`:
 
-- 先尝试匹配“今天”上海最高温盘口（按 `Asia/Shanghai`）
-- 若今天盘口仍可交易，则市场+天气+模型全部使用今天目标日
-- 只有当今天盘口关闭/不可交易时，才自动切换到明天盘口
-- 若 slug 直连失败，再回退到 events/markets 列表搜索
+- Every page visit recalculates with latest market + weather data
+- Every manual refresh recalculates decision immediately
+- No daily lock-in or reused stale decision
 
-可选覆盖：
+## Trading Engine
 
-- 设置 `POLYMARKET_EVENT_SLUG` 可手工固定某个事件
-- 不设置则保持自动交易日模式（推荐）
-
-## 实时决策模式
-
-当前默认是 `realtime`：
-
-- 每次进入页面都会基于最新盘口+天气重新计算决策
-- 每次点击刷新都会重新计算决策
-- 不做日内锁定，不复用旧决策
-
-## 交易引擎
-
-路径：`/src/lib/trading-engine`
+Path: `/src/lib/trading-engine`
 
 - `types.ts`
 - `edge.ts`
@@ -75,38 +70,26 @@
 - `model.ts`
 - `tradingEngine.ts` (`runTradingDecision`)
 
-关键公式：
+Main formulas:
 
 - `Edge = ModelProbability - MarketPrice`
 - `TradeScore = 0.35*EdgeScore + 0.25*TimingScore + 0.20*WeatherScore + 0.20*DataQualityScore`
 
-决策映射：
+Decision mapping:
 
 - `<60 -> PASS`
 - `60-75 -> WATCH`
 - `>75 -> BUY`
 
-仓位：
+Position sizing:
 
 - `MaxTradeSize = totalCapital * maxSingleTradePercent`
 - `BasePosition = MaxTradeSize * EdgeMultiplier`
 - `PositionSize = BasePosition * RiskModifier`
 
-## 双语能力
+## Database Models
 
-- 顶部语言切换：`中文 / EN`
-- 首页与详情页文案双语
-- 风险标签双语
-- 模型解释双语（`reasonZh / reasonEn`）
-
-URL 方式：
-
-- 中文：`/?lang=zh`
-- 英文：`/?lang=en`
-
-## 数据库表
-
-`prisma/schema.prisma`：
+Defined in `prisma/schema.prisma`:
 
 - `markets`
 - `market_bins`
@@ -117,41 +100,40 @@ URL 方式：
 - `snapshots`
 - `notes`
 - `settled_results`
-- `forecast_source_biases`（前一日各源 vs 结算偏差）
+- `forecast_source_biases`
 
-## 页面
+## Main Pages
 
-- `/` 首页（终端主视图）
+- `/`
   - Resolution Standard Card
   - Market Board
   - Model Board
   - Decision / Position / Reason
-  - 全部盘口（Bin）
-- `/market/[slug]` 市场详情
-  - Bin Edge 表
-  - 温度趋势图
-  - Edge 图
-  - Snapshot 与 Notes
-  - 前一日各源偏差表（免费源/付费源）
+  - Full bin table
+- `/market/[slug]`
+  - Bin edges
+  - Temperature/edge charts
+  - Snapshots and notes
+  - Source bias table
 
-## 刷新与任务
+## Jobs and Refresh
 
-Node cron（`npm run jobs`）：
+Node cron (`npm run jobs`):
 
-- Market update: 每 5 分钟
-- Weather update: 每 10 分钟
-- Model run: 每 5 分钟
-- Settled sync: 每天 01:10（抓取已过目标日的 Wunderground 结算温度）
+- Market update: every 5 minutes
+- Weather update: every 10 minutes
+- Model run: every 5 minutes
+- Settled sync: daily at 01:10
 
-手动：
+Manual:
 
 - `POST /api/refresh`
-- `POST /api/jobs/run`，`job` 可选 `market|weather|model|settled|all`
+- `POST /api/jobs/run` with `job=market|weather|model|settled|all`
 - `npm run job:once -- all`
 - `npm run job:once -- market`
 - `npm run job:once -- settled`
 
-## 本地运行
+## Local Setup
 
 ```bash
 npm install
@@ -162,71 +144,70 @@ npm run db:seed
 npm run dev
 ```
 
-## 端口说明（3000 / 3001）
+## Port Behavior (3000 / 3001)
 
-- 默认 `npm run dev` 使用 `3000`
-- 若 `3000` 被占用，Next.js 会自动切到 `3001`
-- 终端启动日志会显示最终地址（以日志为准）
+- `npm run dev` defaults to `3000`
+- If `3000` is occupied, Next.js automatically falls back to `3001`
+- Always use the URL shown in terminal logs
 
-## 环境变量
+## Environment Variables
 
-见 `.env.example`：
+See `.env.example`:
 
 - `DATABASE_URL`
 - `POLYMARKET_API_BASE`
-- `POLYMARKET_EVENT_SLUG`（可选，手动覆盖用）
+- `POLYMARKET_EVENT_SLUG` (optional manual override)
 - `POLYMARKET_TIMEOUT_MS`
 - `TOTAL_CAPITAL`
 - `MAX_SINGLE_TRADE_PERCENT`
-- `WUNDERGROUND_API_KEY`（可选）
 - `MIN_EDGE_TO_TRADE`
 - `MIN_UPSIDE_TO_TRADE`
 - `TRADING_COST_PER_TRADE`
 - `DECISION_POLICY`
+- `WEATHER_STRICT_SOURCES`
+- `WEATHERAPI_KEY` (optional)
+- `WEATHERAPI_API_BASE` (optional)
+- `QWEATHER_API_KEY` (optional)
+- `QWEATHER_API_BASE` (optional)
 
-## 真实数据说明
+## Real Data Policy
 
-平台默认使用真实数据（无 mock 回退）：
+The platform is configured for real data (no fake fallback for core decision outputs):
 
-- Polymarket 市场 API
-- 免费源：Open-Meteo / wttr.in / met.no
-- 付费源：WeatherAPI / QWeather（可选增强）
-- Wunderground / Weather.com 历史观测（结算温度）
+- Polymarket market APIs
+- Free weather sources: Open-Meteo / wttr.in / met.no
+- Optional paid weather sources: WeatherAPI / QWeather
+- Wunderground/Weather.com historical observations for settlement sync
 
-如果外部源失败：
+If external sources fail:
 
-- 任务会报错或降级提示
-- 页面显示告警
-- 不会悄悄展示伪造盘口数据
-- 严格模式下，只要“必需天气源”里有任一缺失，会强制 `PASS`（仓位=0）
+- jobs may error or degrade with explicit warnings
+- UI shows source-level status and error reasons
+- strict source mode can force `PASS` with `position=0`
 
-`WEATHER_STRICT_SOURCES` 默认值：
+Default strict weather source requirement:
 
-- `open_meteo,wttr,met_no`（免 key 可跑）
-- 如你希望更严格，可加付费源：
-- `open_meteo,wttr,met_no,weatherapi,qweather`
+- `WEATHER_STRICT_SOURCES=open_meteo,wttr,met_no`
 
-## 站点绑定（重要）
+## Station Binding
 
-辅助天气源与结算口径都固定绑定到：
+Both weather assist and resolution context are fixed to:
 
 - `Shanghai Pudong International Airport Station`
 - `ZSPD`
-- 坐标：`31.1443, 121.8083`
+- Coordinates: `31.1443, 121.8083`
 
-这用于确保“研究对象”尽量贴近 Polymarket 规则指定站点。
-
-## 测试
+## Tests
 
 ```bash
 npm run test
 ```
 
-覆盖：
+Includes core coverage for:
 
 - bin parsing
 - probability normalization
-- edge 计算
-- timing / weather / data quality 评分
-- risk modifier / position sizing
-- runTradingDecision 输出结构
+- edge calculation
+- timing/weather/data quality scoring
+- risk modifier and position sizing
+- `runTradingDecision` output shape
