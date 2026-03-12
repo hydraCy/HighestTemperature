@@ -52,6 +52,7 @@ export async function getDashboardData() {
     weatherSource: fromJsonString<{ source?: string }>(latestWeather?.rawJson, {}).source ?? 'unknown',
     latestDecision: latestRun
       ? {
+          reasonMeta: fromJsonString<{ reasonZh?: string; reasonEn?: string; recommendedSide?: string }>(latestRun.rawFeaturesJson, {}),
           decision: latestRun.decision,
           recommendedBin: latestRun.bestBin,
           recommendedSide: fromJsonString<{ recommendedSide?: string }>(latestRun.rawFeaturesJson, {}).recommendedSide ?? 'YES',
@@ -62,7 +63,9 @@ export async function getDashboardData() {
           weatherScore: latestRun.weatherScore,
           dataQualityScore: latestRun.dataQualityScore,
           riskFlags: fromJsonString<string[]>(latestRun.riskFlagsJson, []),
-          reason: latestRun.explanation
+          reason: latestRun.explanation,
+          reasonZh: fromJsonString<{ reasonZh?: string }>(latestRun.rawFeaturesJson, {}).reasonZh ?? latestRun.explanation,
+          reasonEn: fromJsonString<{ reasonEn?: string }>(latestRun.rawFeaturesJson, {}).reasonEn ?? latestRun.explanation
         }
       : null,
     snapshots: market.snapshots,

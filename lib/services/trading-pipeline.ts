@@ -186,7 +186,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
       rawFeaturesJson: toJsonString({
         currentTemp: weather.temperature2m,
         maxTempSoFar: weather.maxTempSoFar,
-        recommendedSide: decision.recommendedSide
+        recommendedSide: decision.recommendedSide,
+        reasonZh: decision.reasonZh,
+        reasonEn: decision.reasonEn
       }),
       outputs: {
         create: decision.binOutputs.map((o) => ({

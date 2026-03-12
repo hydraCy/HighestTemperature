@@ -123,6 +123,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     tradeScore < 60 ? 'PASS' : tradeScore <= 75 ? 'WATCH' : 'BUY';
   if (!candidates.length) decision = 'PASS';
   const decisionZh = decision === 'BUY' ? '买入' : decision === 'WATCH' ? '观察' : '放弃';
+  const decisionEn = decision === 'BUY' ? 'BUY' : decision === 'WATCH' ? 'WATCH' : 'PASS';
 
   const riskFlags = buildRiskFlags({
     cloudCover: input.cloudCover,
@@ -148,16 +149,28 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   });
 
   const mismatchTip = isTargetDateMismatch ? '当前并非目标结算日，评分已降权，不建议激进仓位。' : '';
+  const mismatchTipEn = isTargetDateMismatch ? 'Today is not the target settlement date; score is down-weighted and aggressive sizing is not advised.' : '';
   const settleTip = isClosedByTime
     ? '该市场已到或超过结算时间，停止交易建议。'
     : minutesToClose != null && minutesToClose <= 60 && minutesToClose > 0
       ? `距结算仅剩 ${minutesToClose} 分钟，建议只观察不追单。`
       : '';
+  const settleTipEn = isClosedByTime
+    ? 'Market has reached or passed settlement time; trading advice is stopped.'
+    : minutesToClose != null && minutesToClose <= 60 && minutesToClose > 0
+      ? `${minutesToClose} minutes left to settlement; watch-only is recommended.`
+      : '';
   const inactiveTip = isInactive ? '该市场已非 active 状态，不建议下单。' : '';
+  const inactiveTipEn = isInactive ? 'Market is not active; placing orders is not recommended.' : '';
   const profitabilityTip = !candidates.length
     ? '当前没有满足净利润门槛的盘口（已扣除交易成本与剩余上涨空间约束），建议 PASS。'
     : `可交易净Edge约 ${(edge * 100).toFixed(1)}%，优先方向为 ${best?.bestSide ?? '-'}。`;
-  const reason = `目标日全天最高温预测约 ${input.maxTempSoFar.toFixed(1)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${mismatchTip}${settleTip}${inactiveTip}`;
+  const profitabilityTipEn = !candidates.length
+    ? 'No bin meets net-profit threshold (after cost and remaining upside constraints); PASS is recommended.'
+    : `Tradable net edge is about ${(edge * 100).toFixed(1)}%, preferred side is ${best?.bestSide ?? '-'}.`;
+  const reasonZh = `目标日全天最高温预测约 ${input.maxTempSoFar.toFixed(1)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${mismatchTip}${settleTip}${inactiveTip}`;
+  const reasonEn = `Forecast max temperature for target day is about ${input.maxTempSoFar.toFixed(1)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
+  const reason = `${reasonZh}\nEN: ${reasonEn}`;
 
   const finalDecision = isClosedByTime || isInactive ? 'PASS' : decision;
   const finalPositionSize = isClosedByTime || isInactive ? 0 : positionSize;
@@ -174,6 +187,8 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     dataQualityScore,
     riskFlags,
     reason,
+    reasonZh,
+    reasonEn,
     binOutputs: outputs
   };
 }

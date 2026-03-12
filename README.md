@@ -1,24 +1,27 @@
 # Polymarket 上海最高温研究与交易决策平台
 
-单用户、只读、交易辅助平台。
+单用户、只读、交易辅助平台（不自动下单、不接钱包、不接私钥）。
 
 核心输出：
 
 - `Decision` (`BUY / WATCH / PASS`)
 - `Position`
-- `Reason`
+- `Reason`（中英双语）
 
-## 平台目标
+## 当前版本重点
 
-系统不做自动下单，不接钱包，不接私钥。
+- 自动抓取 **上海次日（T+1）** Polymarket 最高温盘口
+- 盘口、模型、EV、仓位建议一体化展示
+- Wunderground 口径结算抓取（历史/前一日）
+- 页面支持中英切换：`中文 / EN`
 
-系统核心逻辑：
+## 核心原则
+
+系统目标不是“做天气站”，而是辅助判断：
 
 `Polymarket rules -> Resolution Station -> Resolution Source -> Final Value`
 
-天气数据仅为辅助估算，页面会明确提示：
-
-`辅助天气数据不是最终结算依据`
+页面明确提示：辅助天气数据不是最终结算依据。
 
 ## 技术栈
 
@@ -33,9 +36,22 @@
 
 ## 单城市策略
 
-当前仅支持：`Shanghai`（UI 为单选 Select，默认 Shanghai）。
+当前只支持：`Shanghai`。
 
-## 交易引擎结构
+## 自动盘口选择（重要）
+
+默认行为：
+
+- 以 `Asia/Shanghai` 计算“明天日期”
+- 自动优先匹配次日事件 slug（例如 `highest-temperature-in-shanghai-on-march-13-2026`）
+- 若失败，再回退到 events/markets 列表中搜索上海最高温盘口
+
+可选覆盖：
+
+- 设置 `POLYMARKET_EVENT_SLUG` 可手工固定某个事件
+- 不设置则保持自动次日模式（推荐）
+
+## 交易引擎
 
 路径：`/src/lib/trading-engine`
 
@@ -49,7 +65,7 @@
 - `model.ts`
 - `tradingEngine.ts` (`runTradingDecision`)
 
-### 关键公式
+关键公式：
 
 - `Edge = ModelProbability - MarketPrice`
 - `TradeScore = 0.35*EdgeScore + 0.25*TimingScore + 0.20*WeatherScore + 0.20*DataQualityScore`
@@ -66,9 +82,21 @@
 - `BasePosition = MaxTradeSize * EdgeMultiplier`
 - `PositionSize = BasePosition * RiskModifier`
 
+## 双语能力
+
+- 顶部语言切换：`中文 / EN`
+- 首页与详情页文案双语
+- 风险标签双语
+- 模型解释双语（`reasonZh / reasonEn`）
+
+URL 方式：
+
+- 中文：`/?lang=zh`
+- 英文：`/?lang=en`
+
 ## 数据库表
 
-`prisma/schema.prisma` 中包含：
+`prisma/schema.prisma`：
 
 - `markets`
 - `market_bins`
@@ -82,18 +110,19 @@
 
 ## 页面
 
-- `/` 决策终端首页
+- `/` 首页（终端主视图）
   - Resolution Standard Card
   - Market Board
   - Model Board
   - Decision / Position / Reason
+  - 全部盘口（Bin）
 - `/market/[slug]` 市场详情
   - Bin Edge 表
   - 温度趋势图
   - Edge 图
   - Snapshot 与 Notes
 
-## 刷新机制
+## 刷新与任务
 
 Node cron（`npm run jobs`）：
 
@@ -102,11 +131,13 @@ Node cron（`npm run jobs`）：
 - Model run: 每 5 分钟
 - Settled sync: 每天 01:10（抓取已过目标日的 Wunderground 结算温度）
 
-并提供：
+手动：
 
-- 手动刷新：`POST /api/refresh`
-- job API：`POST /api/jobs/run`，`job` 可选 `market|weather|model|settled|all`
-- CLI 单次任务：`npm run job:once -- settled`
+- `POST /api/refresh`
+- `POST /api/jobs/run`，`job` 可选 `market|weather|model|settled|all`
+- `npm run job:once -- all`
+- `npm run job:once -- market`
+- `npm run job:once -- settled`
 
 ## 本地运行
 
@@ -119,32 +150,40 @@ npm run db:seed
 npm run dev
 ```
 
+## 端口说明（3000 / 3001）
+
+- 默认 `npm run dev` 使用 `3000`
+- 若 `3000` 被占用，Next.js 会自动切到 `3001`
+- 终端启动日志会显示最终地址（以日志为准）
+
 ## 环境变量
 
 见 `.env.example`：
 
 - `DATABASE_URL`
 - `POLYMARKET_API_BASE`
-- `POLYMARKET_EVENT_SLUG`
+- `POLYMARKET_EVENT_SLUG`（可选，手动覆盖用）
 - `POLYMARKET_TIMEOUT_MS`
 - `TOTAL_CAPITAL`
 - `MAX_SINGLE_TRADE_PERCENT`
 - `WUNDERGROUND_API_KEY`（可选）
+- `MIN_EDGE_TO_TRADE`
+- `MIN_UPSIDE_TO_TRADE`
+- `TRADING_COST_PER_TRADE`
 
 ## 真实数据说明
 
-平台强制仅使用实时数据（无 mock 回退）：
+平台默认使用真实数据（无 mock 回退）：
 
 - Polymarket 市场 API
-- Open-Meteo 天气辅助 API
-- wttr.in 天气辅助 API（用于交叉验证）
-- Wunderground/Weather.com 历史观测（用于前一日/历史市场结算温度）
+- Open-Meteo / wttr.in / met.no 等天气辅助源
+- Wunderground / Weather.com 历史观测（结算温度）
 
-若 Polymarket 或天气源都失败，任务会直接报错，页面会显示告警，不会悄悄展示假数据。
+如果外部源失败：
 
-## 种子数据
-
-Seed 默认写入 Shanghai 市场、resolution metadata、weather assist、model run、snapshot、note、settled result。
+- 任务会报错或降级提示
+- 页面显示告警
+- 不会悄悄展示伪造盘口数据
 
 ## 测试
 
@@ -152,7 +191,7 @@ Seed 默认写入 Shanghai 市场、resolution metadata、weather assist、model
 npm run test
 ```
 
-包含：
+覆盖：
 
 - bin parsing
 - probability normalization

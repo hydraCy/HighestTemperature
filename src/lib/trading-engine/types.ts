@@ -57,5 +57,7 @@ export type TradingDecisionOutput = {
   dataQualityScore: number;
   riskFlags: string[];
   reason: string;
+  reasonZh: string;
+  reasonEn: string;
   binOutputs: ModelBinOutput[];
 };

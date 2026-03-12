@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
-export function RefreshButton({ slug }: { slug: string }) {
+export function RefreshButton({ slug, lang = 'zh' }: { slug: string; lang?: 'zh' | 'en' }) {
   const [loading, setLoading] = useState(false);
+  const t = lang === 'en' ? { loading: 'Refreshing...', idle: 'Refresh Market' } : { loading: '刷新中...', idle: '刷新该市场' };
 
   return (
     <Button
@@ -21,7 +22,7 @@ export function RefreshButton({ slug }: { slug: string }) {
         }
       }}
     >
-      {loading ? '刷新中...' : '刷新该市场'}
+      {loading ? t.loading : t.idle}
     </Button>
   );
 }

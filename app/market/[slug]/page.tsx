@@ -9,6 +9,7 @@ import { getMarketDetail } from '@/lib/services/query';
 import { NoteInput } from '@/components/market/note-input';
 import { fromJsonString } from '@/lib/utils/json';
 import { TempTrendChart, BinEdgeChart } from '@/components/charts/market-charts';
+import { riskLabel } from '@/lib/i18n/risk-labels';
 
 type DetailSearchParams = Promise<{ lang?: string | string[] }>;
 
@@ -21,6 +22,99 @@ export default async function MarketDetailPage({
 }) {
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
+  const t =
+    lang === 'en'
+      ? {
+          pageTag: 'Shanghai / Market Detail',
+          warning: 'Warning: data may be incomplete',
+          market: 'market',
+          weather: 'weather',
+          weatherErrors: 'weather source errors',
+          refreshHint: 'Please refresh and verify API status.',
+          settledWarn: 'This market is in settlement window or closed',
+          settlementTime: 'Settlement Time',
+          avoidTrade: 'Not recommended to trade further.',
+          resolutionCard: 'Resolution Standard Card',
+          station: 'Resolution Station',
+          stationCode: 'Station Code',
+          source: 'Source',
+          sourceUrl: 'Source URL',
+          open: 'Open',
+          precision: 'Precision Rule',
+          finalizedRule: 'Finalization Rule',
+          assistNote: 'Assist weather data is not final resolution basis. Final resolution follows Polymarket rules and designated source.',
+          modelEdgeTable: 'Model / Edge Table',
+          ask: 'Executable Ask',
+          noPrice: 'No Price',
+          bid: 'Bid',
+          spread: 'Spread',
+          modelYes: 'Model Yes',
+          modelNo: 'Model No',
+          evYes: 'EV(Yes)',
+          evNo: 'EV(No)',
+          prefSide: 'Preferred Side',
+          decisionOutput: 'Decision Output',
+          topEdge: 'Top net edge opportunity',
+          decision: 'Decision',
+          buy: 'BUY',
+          watch: 'WATCH',
+          pass: 'PASS',
+          recBin: 'Recommended Bin',
+          recSide: 'Recommended Side',
+          tradeScore: 'Trade Score',
+          position: 'Position Size',
+          twd: 'Timing / Weather / DataQuality',
+          tempTrend: 'Temperature Trend',
+          binEdge: 'Bin Edge',
+          snapshotsNotes: 'Snapshots & Notes',
+          score: 'Score'
+        }
+      : {
+          pageTag: '上海 / 市场详情',
+          warning: '警告：数据可能不完整',
+          market: '市场',
+          weather: '天气',
+          weatherErrors: '天气源异常',
+          refreshHint: '建议先刷新并确认 API 正常。',
+          settledWarn: '该市场已到结算窗口或已关闭',
+          settlementTime: '结算时间',
+          avoidTrade: '不建议继续下单。',
+          resolutionCard: '结算口径标准卡',
+          station: '结算站点',
+          stationCode: '站点代码',
+          source: '来源',
+          sourceUrl: '来源链接',
+          open: '打开',
+          precision: '精度规则',
+          finalizedRule: '最终规则',
+          assistNote: '辅助天气数据不是最终结算依据，结算以 Polymarket 规则与指定来源为准。',
+          modelEdgeTable: '模型 / Edge 表',
+          ask: '可成交价(ask)',
+          noPrice: 'No价格',
+          bid: 'bid',
+          spread: 'spread',
+          modelYes: '模型Yes',
+          modelNo: '模型No',
+          evYes: 'EV(Yes)',
+          evNo: 'EV(No)',
+          prefSide: '优先方向',
+          decisionOutput: '决策输出',
+          topEdge: '最高净利润机会',
+          decision: '决策',
+          buy: '买入',
+          watch: '观察',
+          pass: '放弃',
+          recBin: '推荐 Bin',
+          recSide: '推荐方向',
+          tradeScore: '交易评分',
+          position: '建议仓位',
+          twd: '时点 / 天气 / 数据质量',
+          tempTrend: '温度趋势',
+          binEdge: '各 Bin Edge',
+          snapshotsNotes: '快照与笔记',
+          score: '分数'
+        };
+
   const { slug } = await params;
   const data = await getMarketDetail(slug);
   if (!data) return notFound();
@@ -57,11 +151,17 @@ export default async function MarketDetailPage({
   const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data.latestWeather?.rawJson, {});
   const weatherErrors = weatherRaw.raw?.errors ?? [];
 
+  const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
+  const reasonLocalized =
+    lang === 'en'
+      ? fromJsonString<{ reasonEn?: string }>(latestRun?.rawFeaturesJson, {}).reasonEn ?? latestRun?.explanation ?? '-'
+      : fromJsonString<{ reasonZh?: string }>(latestRun?.rawFeaturesJson, {}).reasonZh ?? latestRun?.explanation ?? '-';
+
   return (
     <SiteShell currentPath={`/market/${slug}`} lang={lang}>
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs text-muted-foreground">上海 / 市场详情</p>
+          <p className="text-xs text-muted-foreground">{t.pageTag}</p>
           <h1 className="text-xl font-semibold">{data.market.marketTitle}</h1>
         </div>
       </div>
@@ -69,7 +169,8 @@ export default async function MarketDetailPage({
       {(data.marketSource !== 'api' || data.weatherSource !== 'api' || weatherErrors.length > 0) && (
         <Card className="border-amber-500/30">
           <CardContent className="p-4 text-sm text-amber-300">
-            警告：数据可能不完整（市场：{data.marketSource}，天气：{data.weatherSource}）。{weatherErrors.length > 0 ? `天气源异常：${weatherErrors.join('；')}` : '建议先刷新并确认 API 正常。'}
+            {t.warning}（{t.market}：{data.marketSource}，{t.weather}：{data.weatherSource}）。
+            {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : t.refreshHint}
           </CardContent>
         </Card>
       )}
@@ -77,46 +178,46 @@ export default async function MarketDetailPage({
       {data.marketStatus?.isSettled && (
         <Card className="border-rose-500/40">
           <CardContent className="p-4 text-sm text-rose-300">
-            该市场已到结算窗口或已关闭（结算时间：{data.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}），不建议继续下单。
+            {t.settledWarn}（{t.settlementTime}：{data.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}），{t.avoidTrade}
           </CardContent>
         </Card>
       )}
 
       <Card>
-        <CardHeader><CardTitle>结算口径标准卡</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t.resolutionCard}</CardTitle></CardHeader>
         <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-          <p>结算站点: {data.market.resolutionMetadata?.stationName ?? '-'}</p>
-          <p>站点代码: {data.market.resolutionMetadata?.stationCode ?? '-'}</p>
-          <p>来源: {data.market.resolutionMetadata?.sourceName ?? '-'}</p>
+          <p>{t.station}: {data.market.resolutionMetadata?.stationName ?? '-'}</p>
+          <p>{t.stationCode}: {data.market.resolutionMetadata?.stationCode ?? '-'}</p>
+          <p>{t.source}: {data.market.resolutionMetadata?.sourceName ?? '-'}</p>
           <p>
-            来源链接:{' '}
+            {t.sourceUrl}:{' '}
             {data.market.resolutionMetadata?.sourceUrl ? (
-              <a href={data.market.resolutionMetadata.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">打开</a>
+              <a href={data.market.resolutionMetadata.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{t.open}</a>
             ) : '-'}
           </p>
-          <p>精度规则: {data.market.resolutionMetadata?.precisionRule ?? '-'}</p>
-          <p>最终规则: {data.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
-          <p className="md:col-span-2 text-xs text-muted-foreground">辅助天气数据不是最终结算依据，结算以 Polymarket 规则与指定来源为准。</p>
+          <p>{t.precision}: {data.market.resolutionMetadata?.precisionRule ?? '-'}</p>
+          <p>{t.finalizedRule}: {data.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
+          <p className="md:col-span-2 text-xs text-muted-foreground">{t.assistNote}</p>
         </CardContent>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>模型 / Edge 表</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t.modelEdgeTable}</CardTitle></CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Bin</TableHead>
-                  <TableHead>可成交价(ask)</TableHead>
-                  <TableHead>No价格</TableHead>
-                  <TableHead>bid</TableHead>
-                  <TableHead>spread</TableHead>
-                  <TableHead>模型Yes</TableHead>
-                  <TableHead>模型No</TableHead>
-                  <TableHead>EV(Yes)</TableHead>
-                  <TableHead>EV(No)</TableHead>
-                  <TableHead>优先方向</TableHead>
+                  <TableHead>{t.ask}</TableHead>
+                  <TableHead>{t.noPrice}</TableHead>
+                  <TableHead>{t.bid}</TableHead>
+                  <TableHead>{t.spread}</TableHead>
+                  <TableHead>{t.modelYes}</TableHead>
+                  <TableHead>{t.modelNo}</TableHead>
+                  <TableHead>{t.evYes}</TableHead>
+                  <TableHead>{t.evNo}</TableHead>
+                  <TableHead>{t.prefSide}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -140,34 +241,34 @@ export default async function MarketDetailPage({
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>决策输出</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t.decisionOutput}</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs">
-              最高净利润机会：{topProfit?.label ?? '-'}（Edge {(topProfit?.edge ?? 0).toFixed(3)}）
+              {t.topEdge}：{topProfit?.label ?? '-'}（Edge {(topProfit?.edge ?? 0).toFixed(3)}）
             </p>
-            <p>决策: {latestRun?.decision === 'BUY' ? '买入' : latestRun?.decision === 'WATCH' ? '观察' : '放弃'}</p>
-            <p>推荐 Bin: {latestRun?.bestBin ?? '-'}</p>
-            <p>推荐方向: {fromJsonString<{ recommendedSide?: string }>(latestRun?.rawFeaturesJson, {}).recommendedSide ?? '-'}</p>
-            <p>交易评分: {latestRun?.tradeScore?.toFixed(2) ?? '-'}</p>
-            <p>建议仓位: {latestRun?.recommendedPosition?.toFixed(2) ?? '-'}</p>
-            <p>时点 / 天气 / 数据质量: {latestRun?.timingScore?.toFixed(0) ?? '-'} / {latestRun?.weatherScore?.toFixed(0) ?? '-'} / {latestRun?.dataQualityScore?.toFixed(0) ?? '-'}</p>
+            <p>{t.decision}: {decisionLabel(latestRun?.decision)}</p>
+            <p>{t.recBin}: {latestRun?.bestBin ?? '-'}</p>
+            <p>{t.recSide}: {fromJsonString<{ recommendedSide?: string }>(latestRun?.rawFeaturesJson, {}).recommendedSide ?? '-'}</p>
+            <p>{t.tradeScore}: {latestRun?.tradeScore?.toFixed(2) ?? '-'}</p>
+            <p>{t.position}: {latestRun?.recommendedPosition?.toFixed(2) ?? '-'}</p>
+            <p>{t.twd}: {latestRun?.timingScore?.toFixed(0) ?? '-'} / {latestRun?.weatherScore?.toFixed(0) ?? '-'} / {latestRun?.dataQualityScore?.toFixed(0) ?? '-'}</p>
             <div className="flex flex-wrap gap-1">
               {fromJsonString<string[]>(latestRun?.riskFlagsJson, []).map((r) => (
-                <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{r}</span>
+                <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{riskLabel(r, lang)}</span>
               ))}
             </div>
-            <p className="rounded border border-border/60 p-2 text-xs">{latestRun?.explanation ?? '-'}</p>
+            <p className="rounded border border-border/60 p-2 text-xs">{reasonLocalized}</p>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>温度趋势</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t.tempTrend}</CardTitle></CardHeader>
           <CardContent><TempTrendChart data={tempSeries} /></CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>各 Bin Edge</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t.binEdge}</CardTitle></CardHeader>
           <CardContent>
             <BinEdgeChart data={(latestRun?.outputs ?? []).map((o) => ({ label: o.outcomeLabel, edge: o.edge }))} />
           </CardContent>
@@ -175,19 +276,19 @@ export default async function MarketDetailPage({
       </div>
 
       <Card>
-        <CardHeader><CardTitle>快照与笔记</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t.snapshotsNotes}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1 text-xs">
             {data.snapshots.map((s) => {
               const out = fromJsonString<{ decision?: string; tradeScore?: number }>(s.tradingOutputJson, {});
               return (
                 <p key={s.id} className="rounded border border-border/60 px-2 py-1">
-                  {format(s.capturedAt, 'yyyy-MM-dd HH:mm')} | {out.decision === 'BUY' ? '买入' : out.decision === 'WATCH' ? '观察' : '放弃'} | 分数 {out.tradeScore?.toFixed?.(2) ?? '-'}
+                  {format(s.capturedAt, 'yyyy-MM-dd HH:mm')} | {decisionLabel(out.decision)} | {t.score} {out.tradeScore?.toFixed?.(2) ?? '-'}
                 </p>
               );
             })}
           </div>
-          <NoteInput marketId={data.market.id} />
+          <NoteInput marketId={data.market.id} lang={lang} />
           <div className="space-y-1 text-xs">
             {data.market.notes.map((n) => (
               <p key={n.id} className="rounded border border-border/60 px-2 py-1">{format(n.createdAt, 'MM-dd HH:mm')} {n.noteText}</p>

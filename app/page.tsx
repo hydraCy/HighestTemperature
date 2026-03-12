@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { RefreshAllButton } from '@/components/market/refresh-all-button';
 import { getDashboardData } from '@/lib/services/query';
 import { fromJsonString } from '@/lib/utils/json';
+import { riskLabel } from '@/lib/i18n/risk-labels';
 
 type PageSearchParams = Promise<{ lang?: string | string[] }>;
 
@@ -57,6 +58,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           modelPanel: 'Model Board',
           dayMaxForecast: 'Target Day Max Temp Forecast',
           sourceBreakdown: 'Source Breakdown',
+          chinaWeather: 'China Weather',
+          fused: 'Fused',
           rise123h: 'Rise before peak 1h/2h/3h',
           peakCloud: 'Cloud cover at peak',
           peakPrecip: 'Precip proxy at peak',
@@ -134,6 +137,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           modelPanel: '模型面板',
           dayMaxForecast: '目标日全天最高温预测',
           sourceBreakdown: '来源拆解',
+          chinaWeather: '中国天气',
+          fused: '融合',
           rise123h: '峰值前升温 1h/2h/3h',
           peakCloud: '峰值时云量',
           peakPrecip: '峰值时降水代理',
@@ -311,7 +316,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <CardContent className="space-y-2 text-sm">
             <p>{t.dayMaxForecast}: {data?.latestWeather?.maxTempSoFar?.toFixed(1) ?? '-'}°C</p>
             <p className="text-xs text-muted-foreground">
-              {t.sourceBreakdown}: Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${sourceDailyMax.openMeteo.toFixed(1)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${sourceDailyMax.wttr.toFixed(1)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${sourceDailyMax.metNo.toFixed(1)}°C` : '-'} / 中国天气 {sourceDailyMax?.cmaChina != null ? `${sourceDailyMax.cmaChina.toFixed(1)}°C` : '-'} / 融合 {sourceDailyMax?.fused != null ? `${sourceDailyMax.fused.toFixed(1)}°C` : '-'}
+              {t.sourceBreakdown}: Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${sourceDailyMax.openMeteo.toFixed(1)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${sourceDailyMax.wttr.toFixed(1)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${sourceDailyMax.metNo.toFixed(1)}°C` : '-'} / {t.chinaWeather} {sourceDailyMax?.cmaChina != null ? `${sourceDailyMax.cmaChina.toFixed(1)}°C` : '-'} / {t.fused} {sourceDailyMax?.fused != null ? `${sourceDailyMax.fused.toFixed(1)}°C` : '-'}
             </p>
             <p>{t.rise123h}: {data?.latestWeather?.tempRise1h?.toFixed(2) ?? '-'} / {data?.latestWeather?.tempRise2h?.toFixed(2) ?? '-'} / {data?.latestWeather?.tempRise3h?.toFixed(2) ?? '-'}</p>
             <p>{t.peakCloud}: {data?.latestWeather?.cloudCover?.toFixed(0) ?? '-'}%</p>
@@ -349,10 +354,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <p>{t.dataQualityScore}: {data?.latestDecision?.dataQualityScore?.toFixed(0) ?? '-'}</p>
             <div className="flex flex-wrap gap-1">
               {(data?.latestDecision?.riskFlags ?? []).map((r) => (
-                <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{r}</span>
+                <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{riskLabel(r, lang)}</span>
               ))}
             </div>
-            <p className="rounded border border-border/60 p-2 text-xs">{data?.latestDecision?.reason ?? t.noDecision}</p>
+            <p className="rounded border border-border/60 p-2 text-xs">{(lang === 'en' ? data?.latestDecision?.reasonEn : data?.latestDecision?.reasonZh) ?? t.noDecision}</p>
             {data?.market && <Link className="text-sm text-primary underline" href={`/market/${data.market.marketSlug}?lang=${lang}`}>{t.detail}</Link>}
           </CardContent>
         </Card>
