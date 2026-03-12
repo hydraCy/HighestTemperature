@@ -81,12 +81,19 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const edge = best?.netEdge ?? 0;
 
   const { hour, minute } = localHourMinute(input.now, timezone);
-  const timingScore = calculateTimingScore(hour, minute);
-  const weatherScore = calculateWeatherStabilityScore({
+  const rawTimingScore = calculateTimingScore(hour, minute);
+  const maturity = typeof input.weatherMaturityScore === 'number' ? Math.max(0, Math.min(100, input.weatherMaturityScore)) : null;
+  const timingScore = maturity == null
+    ? rawTimingScore
+    : Math.max(0, Math.min(100, 0.7 * rawTimingScore + 0.3 * maturity));
+  const rawWeatherScore = calculateWeatherStabilityScore({
     cloudCover: input.cloudCover,
     precipitationProb: input.precipitationProb,
     tempRise1h: input.tempRise1h
   });
+  const weatherScore = maturity == null
+    ? rawWeatherScore
+    : Math.max(0, Math.min(100, 0.8 * rawWeatherScore + 0.2 * maturity));
   const dataQualityScore = calculateDataQualityScore({
     resolutionReady: input.resolutionReady,
     weatherReady: input.weatherReady,
@@ -131,6 +138,8 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     tempRise1h: input.tempRise1h
   });
   if (!candidates.length) riskFlags.push('no_profit_edge');
+  if (maturity != null && maturity < 45) riskFlags.push('low_weather_maturity');
+  if (input.scenarioTag === 'suppressed_heating') riskFlags.push('suppressed_heating');
   if (isTargetDateMismatch) riskFlags.push('not_target_date');
   if (minutesToClose != null && minutesToClose <= 60 && minutesToClose > 0) riskFlags.push('settlement_soon');
   if (isClosedByTime) riskFlags.push('market_settled');

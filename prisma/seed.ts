@@ -7,6 +7,7 @@ import { estimateBinProbabilities } from '@/src/lib/trading-engine/model';
 const prisma = new PrismaClient();
 
 async function main() {
+  await prisma.forecastSourceBias.deleteMany();
   await prisma.modelBinOutput.deleteMany();
   await prisma.snapshot.deleteMany();
   await prisma.modelRun.deleteMany();
@@ -156,12 +157,21 @@ async function main() {
     include: { outputs: true }
   });
 
-  await prisma.snapshot.create({
+  const snap = await prisma.snapshot.create({
     data: {
       marketId: market.id,
       modelRunId: run.id,
       marketPricesJson: toJsonString(bins),
-      weatherFeaturesJson: toJsonString({ currentTemp: latestWeather.temperature2m }),
+      weatherFeaturesJson: toJsonString({
+        currentTemp: latestWeather.temperature2m,
+        sourceDailyMax: {
+          openMeteo: 32.1,
+          wttr: 32.8,
+          metNo: 32.5,
+          weatherApi: 32.6,
+          qWeather: 32.4
+        }
+      }),
       modelOutputJson: toJsonString(run.outputs),
       tradingOutputJson: toJsonString(decision),
       explanationText: decision.reason,
@@ -185,6 +195,31 @@ async function main() {
       sourceUrl: 'https://www.wunderground.com/history/daily/cn/shanghai/ZSPD'
     }
   });
+
+  const finalValue = 32.4;
+  for (const item of [
+    { sourceCode: 'open_meteo', sourceGroup: 'free', predictedMax: 32.1 },
+    { sourceCode: 'wttr', sourceGroup: 'free', predictedMax: 32.8 },
+    { sourceCode: 'met_no', sourceGroup: 'free', predictedMax: 32.5 },
+    { sourceCode: 'weatherapi', sourceGroup: 'paid', predictedMax: 32.6 },
+    { sourceCode: 'qweather', sourceGroup: 'paid', predictedMax: 32.4 }
+  ]) {
+    const bias = item.predictedMax - finalValue;
+    await prisma.forecastSourceBias.create({
+      data: {
+        marketId: market.id,
+        snapshotId: snap.id,
+        sourceCode: item.sourceCode,
+        sourceGroup: item.sourceGroup,
+        forecastDate: new Date(new Date().toISOString().slice(0, 10)),
+        capturedAt: new Date(),
+        predictedMax: item.predictedMax,
+        finalMax: finalValue,
+        bias,
+        absError: Math.abs(bias)
+      }
+    });
+  }
 
   console.log('Seeded Shanghai decision platform');
 }

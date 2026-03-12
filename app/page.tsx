@@ -25,6 +25,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           warningMarket: 'market',
           warningWeather: 'weather',
           weatherErrors: 'weather source errors',
+          strictBlock: 'Strict mode: at least one weather source is missing. Forecast and recommendation are blocked.',
+          strictMissing: 'Missing sources',
           nonDirectResolution: 'Wunderground direct resolution source is not connected yet; proxy weather estimate only.',
           settledTitle: 'Market is in settlement window or closed',
           settledForcePass: 'System output is forced to PASS and position is 0.',
@@ -38,6 +40,14 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           finalizeRule: 'Finalization Rule',
           marketSource: 'Market Data Source',
           weatherSource: 'Weather Data Source',
+          apiStatusTitle: 'Weather API Status',
+          status: 'Status',
+          reason: 'Reason',
+          statusOk: 'ok',
+          statusNoData: 'no_data',
+          statusFetchError: 'fetch_error',
+          statusParseError: 'parse_error',
+          statusSkipped: 'skipped',
           settlementTime: 'Settlement Time',
           minsToSettlement: 'Minutes to Settlement',
           mins: 'min',
@@ -58,8 +68,36 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           modelPanel: 'Model Board',
           dayMaxForecast: 'Target Day Max Temp Forecast',
           sourceBreakdown: 'Source Breakdown',
-          chinaWeather: 'China Weather',
+          weatherApi: 'WeatherAPI',
+          qweather: 'QWeather',
+          freeSources: 'Free Sources',
+          paidSources: 'Paid Sources',
+          nowcastingPanel: 'Nowcasting Panel',
+          currentTemp: 'Current Temp',
+          todayObservedMax: 'Today Max So Far',
+          cloudCover: 'Cloud Cover',
+          precipProb: 'Precip Probability',
+          wind: 'Wind',
+          windDir: 'Wind Dir',
+          future1to3h: 'Next 1-3h Forecast',
+          scenarioTag: 'Scenario',
+          weatherMaturity: 'Weather Maturity Score',
+          stableSunny: 'Stable Sunny',
+          suppressedHeating: 'Suppressed Heating',
+          neutral: 'Neutral',
           fused: 'Fused',
+          whyForecast: 'Why this forecast value',
+          fusionMethod: 'Fusion Method',
+          sourceSpread: 'Cross-source Spread',
+          confidence: 'Confidence',
+          forecastConfidence: { high: 'High', medium: 'Medium', low: 'Low' },
+          opportunityRanking: 'Top Profit Opportunities (Net EV)',
+          rank: 'Rank',
+          side: 'Side',
+          modelProb: 'Model Prob',
+          marketPx: 'Market Px',
+          grossEdge: 'Gross EV',
+          netEdge: 'Net EV',
           rise123h: 'Rise before peak 1h/2h/3h',
           peakCloud: 'Cloud cover at peak',
           peakPrecip: 'Precip proxy at peak',
@@ -104,6 +142,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           warningMarket: '市场',
           warningWeather: '天气',
           weatherErrors: '天气源异常',
+          strictBlock: '严格模式：存在缺失天气源，预测与交易建议已禁用。',
+          strictMissing: '缺失数据源',
           nonDirectResolution: '当前尚未直接接入 Wunderground 结算源，只能用代理天气源估算。',
           settledTitle: '当前市场已到结算窗口或已关闭',
           settledForcePass: '系统已强制输出 PASS，仓位为 0。',
@@ -117,6 +157,14 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           finalizeRule: '最终规则',
           marketSource: '市场数据来源',
           weatherSource: '天气数据来源',
+          apiStatusTitle: '天气源状态',
+          status: '状态',
+          reason: '原因',
+          statusOk: '正常',
+          statusNoData: '无数据',
+          statusFetchError: '拉取失败',
+          statusParseError: '解析失败',
+          statusSkipped: '未启用',
           settlementTime: '结算时间',
           minsToSettlement: '距结算',
           mins: '分钟',
@@ -137,8 +185,36 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           modelPanel: '模型面板',
           dayMaxForecast: '目标日全天最高温预测',
           sourceBreakdown: '来源拆解',
-          chinaWeather: '中国天气',
+          weatherApi: 'WeatherAPI',
+          qweather: 'QWeather',
+          freeSources: '免费源',
+          paidSources: '付费源',
+          nowcastingPanel: '短临决策面板',
+          currentTemp: '当前温度',
+          todayObservedMax: '今日已录得最高温',
+          cloudCover: '云量',
+          precipProb: '降雨概率',
+          wind: '风速',
+          windDir: '风向',
+          future1to3h: '未来1-3小时',
+          scenarioTag: '场景标签',
+          weatherMaturity: 'Weather Maturity Score',
+          stableSunny: '稳定升温',
+          suppressedHeating: '压温场景',
+          neutral: '中性',
           fused: '融合',
+          whyForecast: '为什么是这个预测值',
+          fusionMethod: '融合方法',
+          sourceSpread: '源间分歧',
+          confidence: '置信度',
+          forecastConfidence: { high: '高', medium: '中', low: '低' },
+          opportunityRanking: '最可能赚钱机会（按净EV）',
+          rank: '排名',
+          side: '方向',
+          modelProb: '模型概率',
+          marketPx: '市场价格',
+          grossEdge: '毛EV',
+          netEdge: '净EV',
           rise123h: '峰值前升温 1h/2h/3h',
           peakCloud: '峰值时云量',
           peakPrecip: '峰值时降水代理',
@@ -181,8 +257,57 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
   const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data?.latestWeather?.rawJson, {});
   const weatherErrors = weatherRaw.raw?.errors ?? [];
-  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { openMeteo?: number | null; wttr?: number | null; metNo?: number | null; cmaChina?: number | null; fused?: number | null } } | undefined)?.sourceDailyMax;
+  const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
+  const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
+  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
+  const apiStatusMap = (weatherRaw.raw as {
+    apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean }>;
+  } | undefined)?.apiStatus ?? {};
+  const nowcasting = (weatherRaw.raw as {
+    nowcasting?: {
+      currentTemp?: number;
+      todayMaxTemp?: number;
+      tempRise1h?: number;
+      tempRise2h?: number;
+      tempRise3h?: number;
+      cloudCover?: number;
+      precipitationProb?: number;
+      windSpeed?: number;
+      windDirection?: number | null;
+      scenarioTag?: string;
+      weatherMaturityScore?: number;
+      futureHours?: Array<{
+        hourOffset: number;
+        temp: number;
+        cloudCover: number;
+        precipitationProb: number;
+        windSpeed: number;
+        windDirection?: number | null;
+      }>;
+    };
+  } | undefined)?.nowcasting;
+  const forecastExplain = (weatherRaw.raw as { forecastExplain?: { zh?: string; en?: string; method?: string; confidence?: 'high' | 'medium' | 'low' } } | undefined)?.forecastExplain;
   const resolutionSourceStatus = (weatherRaw.raw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
+  const statusLabel = (s?: string) => {
+    if (s === 'ok') return t.statusOk;
+    if (s === 'no_data') return t.statusNoData;
+    if (s === 'fetch_error') return t.statusFetchError;
+    if (s === 'parse_error') return t.statusParseError;
+    if (s === 'skipped') return t.statusSkipped;
+    return s ?? '-';
+  };
+  const apiRows = [
+    { code: 'open_meteo', label: 'Open-Meteo' },
+    { code: 'wttr', label: 'wttr' },
+    { code: 'met_no', label: 'met.no' },
+    { code: 'weatherapi', label: 'WeatherAPI' },
+    { code: 'qweather', label: 'QWeather' }
+  ];
+  const scenarioLabel = (tag?: string) => {
+    if (tag === 'stable_sunny') return t.stableSunny;
+    if (tag === 'suppressed_heating') return t.suppressedHeating;
+    return t.neutral;
+  };
   const outputMap = new Map((data?.latestRun?.outputs ?? []).map((o) => [o.outcomeLabel, o]));
   const allBins = (data?.market.bins ?? []).map((b) => {
     const out = outputMap.get(b.outcomeLabel);
@@ -206,6 +331,18 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     };
   });
   const topProfit = [...allBins].sort((a, b) => b.edge - a.edge)[0];
+  const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
+  const opportunityRows = [...allBins]
+    .map((b) => {
+      const side = b.edgeYes >= b.edgeNo ? 'YES' : 'NO';
+      const modelProb = side === 'YES' ? b.modelProbability : b.modelNoProbability;
+      const marketPx = side === 'YES' ? b.marketPrice : b.noMarketPrice;
+      const grossEdge = side === 'YES' ? b.edgeYes : b.edgeNo;
+      const netEdge = grossEdge - tradingCost;
+      return { label: b.label, side, modelProb, marketPx, grossEdge, netEdge };
+    })
+    .sort((a, b) => b.netEdge - a.netEdge)
+    .slice(0, 8);
 
   return (
     <SiteShell currentPath="/" lang={lang}>
@@ -222,11 +359,12 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         </div>
       </div>
 
-      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct') && (
+      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady) && (
         <Card className="border-amber-500/30">
           <CardContent className="p-4 text-sm text-amber-300">
             {t.warningPrefix}（{t.warningMarket}：{sourceLabel(data?.marketSource)}，{t.warningWeather}：{sourceLabel(data?.weatherSource)}）。
             {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : ''}
+            {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
             {resolutionSourceStatus !== 'direct' ? ` ${t.nonDirectResolution}` : ''}
           </CardContent>
         </Card>
@@ -260,6 +398,51 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
           <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
           <p className="md:col-span-2">{t.assistNote}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{t.nowcastingPanel}</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="grid gap-2 md:grid-cols-3">
+            <p>{t.currentTemp}: {nowcasting?.currentTemp != null ? `${nowcasting.currentTemp.toFixed(1)}°C` : '-'}</p>
+            <p>{t.todayObservedMax}: {nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
+            <p>{t.rise123h}: {nowcasting?.tempRise1h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise2h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise3h?.toFixed(2) ?? '-'}</p>
+            <p>{t.cloudCover}: {nowcasting?.cloudCover != null ? `${nowcasting.cloudCover.toFixed(0)}%` : '-'}</p>
+            <p>{t.precipProb}: {nowcasting?.precipitationProb != null ? `${nowcasting.precipitationProb.toFixed(0)}%` : '-'}</p>
+            <p>{t.wind}: {nowcasting?.windSpeed != null ? `${nowcasting.windSpeed.toFixed(1)} km/h` : '-'} / {t.windDir} {nowcasting?.windDirection != null ? `${nowcasting.windDirection.toFixed(0)}°` : '-'}</p>
+            <p>{t.scenarioTag}: {scenarioLabel(nowcasting?.scenarioTag)}</p>
+            <p>{t.weatherMaturity}: {nowcasting?.weatherMaturityScore != null ? nowcasting.weatherMaturityScore.toFixed(0) : '-'}</p>
+          </div>
+          <div className="rounded border border-border/60 p-2">
+            <p className="mb-1 text-xs font-medium">{t.future1to3h}</p>
+            <div className="grid gap-2 md:grid-cols-3">
+              {(nowcasting?.futureHours ?? []).slice(0, 3).map((f) => (
+                <div key={f.hourOffset} className="rounded border border-border/40 p-2 text-xs">
+                  <p>+{f.hourOffset}h</p>
+                  <p>{f.temp.toFixed(1)}°C</p>
+                  <p>{t.cloudCover} {f.cloudCover.toFixed(0)}%</p>
+                  <p>{t.precipProb} {f.precipitationProb.toFixed(0)}%</p>
+                  <p>{t.wind} {f.windSpeed.toFixed(1)} km/h</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded border border-border/60 p-2">
+            <p className="mb-1 text-xs font-medium">{t.apiStatusTitle}</p>
+            <div className="space-y-1">
+              {apiRows.map((r) => {
+                const item = apiStatusMap[r.code];
+                return (
+                  <div key={r.code} className="grid grid-cols-12 gap-2 text-xs">
+                    <p className="col-span-3">{r.label}</p>
+                    <p className="col-span-3">{t.status}: {statusLabel(item?.status)}</p>
+                    <p className="col-span-6 text-muted-foreground">{t.reason}: {item?.reason ?? '-'}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -313,21 +496,85 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
 
         <Card>
           <CardHeader><CardTitle>{t.modelPanel}</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p>{t.dayMaxForecast}: {data?.latestWeather?.maxTempSoFar?.toFixed(1) ?? '-'}°C</p>
-            <p className="text-xs text-muted-foreground">
-              {t.sourceBreakdown}: Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${sourceDailyMax.openMeteo.toFixed(1)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${sourceDailyMax.wttr.toFixed(1)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${sourceDailyMax.metNo.toFixed(1)}°C` : '-'} / {t.chinaWeather} {sourceDailyMax?.cmaChina != null ? `${sourceDailyMax.cmaChina.toFixed(1)}°C` : '-'} / {t.fused} {sourceDailyMax?.fused != null ? `${sourceDailyMax.fused.toFixed(1)}°C` : '-'}
-            </p>
-            <p>{t.rise123h}: {data?.latestWeather?.tempRise1h?.toFixed(2) ?? '-'} / {data?.latestWeather?.tempRise2h?.toFixed(2) ?? '-'} / {data?.latestWeather?.tempRise3h?.toFixed(2) ?? '-'}</p>
-            <p>{t.peakCloud}: {data?.latestWeather?.cloudCover?.toFixed(0) ?? '-'}%</p>
-            <p>{t.peakPrecip}: {data?.latestWeather?.precipitation?.toFixed(2) ?? '-'}</p>
-            <p>{t.peakWind}: {data?.latestWeather?.windSpeed?.toFixed(1) ?? '-'} km/h</p>
-            <div className="space-y-1">
-              {data?.latestRun?.outputs.map((o) => (
-                <p key={o.id} className="rounded border border-border/60 px-2 py-1 text-xs">
-                  {o.outcomeLabel}: {t.modelYes} {(o.modelProbability * 100).toFixed(1)}% / {t.marketSource} {(o.marketPrice * 100).toFixed(1)}% / Edge {o.edge.toFixed(3)}
-                </p>
-              ))}
+          <CardContent className="space-y-3 text-sm">
+            <div className="grid gap-2 md:grid-cols-3">
+              <div className="rounded border border-border/60 bg-card/40 p-2">
+                <p className="text-[11px] text-muted-foreground">{t.dayMaxForecast}</p>
+                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.fused != null ? `${sourceDailyMax.fused.toFixed(1)}°C` : '-'}</p>
+              </div>
+              <div className="rounded border border-border/60 bg-card/40 p-2">
+                <p className="text-[11px] text-muted-foreground">{t.sourceSpread}</p>
+                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.spread != null ? `${sourceDailyMax.spread.toFixed(2)}°C` : '-'}</p>
+              </div>
+              <div className="rounded border border-border/60 bg-card/40 p-2">
+                <p className="text-[11px] text-muted-foreground">{t.confidence}</p>
+                <p className="text-lg font-semibold">{strictReady && forecastExplain?.confidence ? t.forecastConfidence[forecastExplain.confidence] : '-'}</p>
+              </div>
+            </div>
+
+            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
+              <p className="font-medium">{t.whyForecast}</p>
+              <p className="leading-relaxed">{strictReady ? (lang === 'en' ? (forecastExplain?.en ?? '-') : (forecastExplain?.zh ?? '-')) : t.strictBlock}</p>
+              <p className="text-muted-foreground">
+                {t.fusionMethod}: {strictReady ? (forecastExplain?.method ?? '-') : '-'}
+              </p>
+            </div>
+
+            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
+              <p className="font-medium">{t.sourceBreakdown}</p>
+              <p>
+                <span className="text-muted-foreground">{t.freeSources}</span> | Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${sourceDailyMax.openMeteo.toFixed(1)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${sourceDailyMax.wttr.toFixed(1)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${sourceDailyMax.metNo.toFixed(1)}°C` : '-'}
+              </p>
+              <p>
+                <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${sourceDailyMax.weatherApi.toFixed(1)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina)?.toFixed(1)}°C` : '-'}
+              </p>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-3">
+              <div className="rounded border border-border/60 p-2 text-xs">
+                <p className="text-muted-foreground">{t.rise123h}</p>
+                <p>{nowcasting?.tempRise1h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise2h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise3h?.toFixed(2) ?? '-'}</p>
+              </div>
+              <div className="rounded border border-border/60 p-2 text-xs">
+                <p className="text-muted-foreground">{t.peakCloud} / {t.peakPrecip}</p>
+                <p>{nowcasting?.cloudCover?.toFixed(0) ?? '-'}% / {nowcasting?.precipitationProb != null ? `${nowcasting.precipitationProb.toFixed(0)}%` : '-'}</p>
+              </div>
+              <div className="rounded border border-border/60 p-2 text-xs">
+                <p className="text-muted-foreground">{t.peakWind}</p>
+                <p>{nowcasting?.windSpeed?.toFixed(1) ?? '-'} km/h</p>
+              </div>
+            </div>
+
+            <div className="rounded border border-border/60 p-2">
+              <p className="mb-2 text-xs font-medium">{t.opportunityRanking}</p>
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="text-left">{t.rank}</th>
+                    <th className="text-left">{t.bin}</th>
+                    <th className="text-left">{t.side}</th>
+                    <th className="text-left">{t.modelProb}</th>
+                    <th className="text-left">{t.marketPx}</th>
+                    <th className="text-left">{t.netEdge}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {strictReady ? opportunityRows.map((r, idx) => (
+                    <tr key={`${r.label}-${r.side}`} className="border-t border-border/40">
+                      <td>{idx + 1}</td>
+                      <td>{r.label}</td>
+                      <td>{r.side}</td>
+                      <td>{(r.modelProb * 100).toFixed(1)}%</td>
+                      <td>{(r.marketPx * 100).toFixed(1)}%</td>
+                      <td className={r.netEdge >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{r.netEdge.toFixed(3)}</td>
+                    </tr>
+                  )) : (
+                    <tr className="border-t border-border/40">
+                      <td colSpan={6} className="py-2 text-amber-300">{t.strictBlock}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>

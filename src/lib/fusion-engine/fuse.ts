@@ -1,0 +1,111 @@
+import {
+  accuracyScoreFromMae,
+  applyBiasCalibration,
+  calibrationMap,
+  getCalibration,
+  sourceSigmaFromMae
+} from '@/src/lib/fusion-engine/calibration';
+import { buildFusionExplanation } from '@/src/lib/fusion-engine/explain';
+import { matchScore } from '@/src/lib/fusion-engine/matchScore';
+import { normalIntervalProbability } from '@/src/lib/fusion-engine/normalDist';
+import { scenarioLabel, scenarioScoreForSource } from '@/src/lib/fusion-engine/scenarioScore';
+import type {
+  FusionInput,
+  FusionOutput,
+  OutcomeProbability,
+  SourceBreakdown
+} from '@/src/lib/fusion-engine/types';
+
+function normalizeWeights(weights: number[]) {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum <= 0) {
+    const equal = 1 / Math.max(1, weights.length);
+    return weights.map(() => equal);
+  }
+  return weights.map((w) => w / sum);
+}
+
+function normalizeOutcomeProbabilities(items: OutcomeProbability[]) {
+  const sum = items.reduce((acc, i) => acc + i.probability, 0);
+  if (sum <= 0) {
+    const equal = 1 / Math.max(1, items.length);
+    return items.map((i) => ({ ...i, probability: equal }));
+  }
+  return items.map((i) => ({ ...i, probability: i.probability / sum }));
+}
+
+function buildOutcomeProbabilities(mean: number, sigma: number, low = 10, high = 25) {
+  const rows: OutcomeProbability[] = [];
+  for (let k = low; k <= high; k += 1) {
+    const p = normalIntervalProbability(k - 0.5, k + 0.5, mean, sigma);
+    rows.push({ label: `${k}°C`, probability: p });
+  }
+  return normalizeOutcomeProbabilities(rows);
+}
+
+export function runFusionEngine(input: FusionInput): FusionOutput {
+  if (!input.sources.length) {
+    throw new Error('Fusion engine requires at least one weather source input');
+  }
+
+  const calibMap = calibrationMap(input.calibrations);
+
+  const preAdjusted = input.sources.map((src) => {
+    const cal = getCalibration(src.sourceName, calibMap);
+    return {
+      sourceName: src.sourceName,
+      stationType: src.stationType,
+      rawPredictedMaxTemp: src.rawPredictedMaxTemp,
+      adjustedPredictedMaxTemp: applyBiasCalibration(src.rawPredictedMaxTemp, cal.bias),
+      mae: cal.mae
+    };
+  });
+
+  const adjustedMean = preAdjusted.reduce((acc, x) => acc + x.adjustedPredictedMaxTemp, 0) / preAdjusted.length;
+
+  const scored = preAdjusted.map((row) => {
+    const mScore = matchScore(row.stationType);
+    const aScore = accuracyScoreFromMae(row.mae);
+    const sScore = scenarioScoreForSource(
+      input.scenarioContext,
+      row.adjustedPredictedMaxTemp,
+      adjustedMean
+    );
+    const rawWeight = mScore * aScore * sScore;
+    return {
+      ...row,
+      matchScore: mScore,
+      accuracyScore: aScore,
+      scenarioScore: sScore,
+      rawWeight,
+      sourceSigma: sourceSigmaFromMae(row.mae)
+    };
+  });
+
+  const normWeights = normalizeWeights(scored.map((x) => x.rawWeight));
+
+  const sourceBreakdown: SourceBreakdown[] = scored.map((s, i) => ({
+    sourceName: s.sourceName,
+    rawPredictedMaxTemp: s.rawPredictedMaxTemp,
+    adjustedPredictedMaxTemp: s.adjustedPredictedMaxTemp,
+    matchScore: Number(s.matchScore.toFixed(4)),
+    accuracyScore: Number(s.accuracyScore.toFixed(4)),
+    scenarioScore: Number(s.scenarioScore.toFixed(4)),
+    finalWeight: Number(normWeights[i].toFixed(6))
+  }));
+
+  const fusedTemp = scored.reduce((acc, s, i) => acc + s.adjustedPredictedMaxTemp * normWeights[i], 0);
+  const fusedSigma = scored.reduce((acc, s, i) => acc + s.sourceSigma * normWeights[i], 0);
+  const outcomeProbabilities = buildOutcomeProbabilities(fusedTemp, fusedSigma, 10, 25);
+
+  const output: FusionOutput = {
+    fusedTemp: Number(fusedTemp.toFixed(3)),
+    fusedSigma: Number(fusedSigma.toFixed(3)),
+    outcomeProbabilities,
+    sourceBreakdown,
+    explanation: ''
+  };
+
+  output.explanation = buildFusionExplanation(output, scenarioLabel(input.scenarioContext));
+  return output;
+}

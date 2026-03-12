@@ -30,6 +30,8 @@ export default async function MarketDetailPage({
           market: 'market',
           weather: 'weather',
           weatherErrors: 'weather source errors',
+          strictBlock: 'Strict mode: incomplete weather sources, recommendation is forced to PASS.',
+          strictMissing: 'Missing sources',
           refreshHint: 'Please refresh and verify API status.',
           settledWarn: 'This market is in settlement window or closed',
           settlementTime: 'Settlement Time',
@@ -67,7 +69,18 @@ export default async function MarketDetailPage({
           tempTrend: 'Temperature Trend',
           binEdge: 'Bin Edge',
           snapshotsNotes: 'Snapshots & Notes',
-          score: 'Score'
+          score: 'Score',
+          biasTitle: 'Prev-day Source Bias (vs Settled)',
+          biasStatsTitle: 'Source Accuracy Stats (Historical)',
+          sourceCode: 'Source',
+          sourceGroup: 'Group',
+          forecastDate: 'Forecast Date',
+          capturedAt: 'Captured At',
+          predicted: 'Pred Max',
+          settled: 'Settled Max',
+          bias: 'Bias',
+          absError: 'Abs Error',
+          noBias: 'No bias records yet.'
         }
       : {
           pageTag: '上海 / 市场详情',
@@ -75,6 +88,8 @@ export default async function MarketDetailPage({
           market: '市场',
           weather: '天气',
           weatherErrors: '天气源异常',
+          strictBlock: '严格模式：天气源不完整，系统强制 PASS。',
+          strictMissing: '缺失数据源',
           refreshHint: '建议先刷新并确认 API 正常。',
           settledWarn: '该市场已到结算窗口或已关闭',
           settlementTime: '结算时间',
@@ -112,7 +127,18 @@ export default async function MarketDetailPage({
           tempTrend: '温度趋势',
           binEdge: '各 Bin Edge',
           snapshotsNotes: '快照与笔记',
-          score: '分数'
+          score: '分数',
+          biasTitle: '前一日各源偏差（对结算）',
+          biasStatsTitle: '数据源历史精度统计',
+          sourceCode: '数据源',
+          sourceGroup: '分组',
+          forecastDate: '预测日期',
+          capturedAt: '记录时间',
+          predicted: '预测最高温',
+          settled: '结算最高温',
+          bias: '偏差',
+          absError: '绝对误差',
+          noBias: '暂无偏差记录。'
         };
 
   const { slug } = await params;
@@ -150,6 +176,8 @@ export default async function MarketDetailPage({
   const topProfit = [...allBins].sort((a, b) => b.edge - a.edge)[0];
   const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data.latestWeather?.rawJson, {});
   const weatherErrors = weatherRaw.raw?.errors ?? [];
+  const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
+  const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
 
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
   const reasonLocalized =
@@ -166,11 +194,12 @@ export default async function MarketDetailPage({
         </div>
       </div>
 
-      {(data.marketSource !== 'api' || data.weatherSource !== 'api' || weatherErrors.length > 0) && (
+      {(data.marketSource !== 'api' || data.weatherSource !== 'api' || weatherErrors.length > 0 || !strictReady) && (
         <Card className="border-amber-500/30">
           <CardContent className="p-4 text-sm text-amber-300">
             {t.warning}（{t.market}：{data.marketSource}，{t.weather}：{data.weatherSource}）。
             {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : t.refreshHint}
+            {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
           </CardContent>
         </Card>
       )}
@@ -294,6 +323,76 @@ export default async function MarketDetailPage({
               <p key={n.id} className="rounded border border-border/60 px-2 py-1">{format(n.createdAt, 'MM-dd HH:mm')} {n.noteText}</p>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{t.biasTitle}</CardTitle></CardHeader>
+        <CardContent>
+          {data.market.forecastBiases.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t.noBias}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.sourceCode}</TableHead>
+                  <TableHead>{t.sourceGroup}</TableHead>
+                  <TableHead>{t.forecastDate}</TableHead>
+                  <TableHead>{t.capturedAt}</TableHead>
+                  <TableHead>{t.predicted}</TableHead>
+                  <TableHead>{t.settled}</TableHead>
+                  <TableHead>{t.bias}</TableHead>
+                  <TableHead>{t.absError}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.market.forecastBiases.map((b) => (
+                  <TableRow key={b.id}>
+                    <TableCell>{b.sourceCode}</TableCell>
+                    <TableCell>{b.sourceGroup}</TableCell>
+                    <TableCell>{format(b.forecastDate, 'yyyy-MM-dd')}</TableCell>
+                    <TableCell>{format(b.capturedAt, 'yyyy-MM-dd HH:mm')}</TableCell>
+                    <TableCell>{b.predictedMax.toFixed(1)}°C</TableCell>
+                    <TableCell>{b.finalMax.toFixed(1)}°C</TableCell>
+                    <TableCell className={b.bias >= 0 ? 'text-amber-300' : 'text-sky-300'}>{b.bias.toFixed(1)}°C</TableCell>
+                    <TableCell>{b.absError.toFixed(1)}°C</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{t.biasStatsTitle}</CardTitle></CardHeader>
+        <CardContent>
+          {data.biasStats.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t.noBias}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.sourceCode}</TableHead>
+                  <TableHead>{t.sourceGroup}</TableHead>
+                  <TableHead>N</TableHead>
+                  <TableHead>MAE</TableHead>
+                  <TableHead>Avg Bias</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.biasStats.map((s) => (
+                  <TableRow key={`${s.sourceCode}-${s.sourceGroup}`}>
+                    <TableCell>{s.sourceCode}</TableCell>
+                    <TableCell>{s.sourceGroup}</TableCell>
+                    <TableCell>{s._count.sourceCode}</TableCell>
+                    <TableCell>{s._avg.absError?.toFixed(2) ?? '-'}°C</TableCell>
+                    <TableCell>{s._avg.bias?.toFixed(2) ?? '-'}°C</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </SiteShell>

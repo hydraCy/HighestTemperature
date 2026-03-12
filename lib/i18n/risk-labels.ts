@@ -8,7 +8,11 @@ const RISK_LABELS: Record<string, { zh: string; en: string }> = {
   not_target_date: { zh: '非目标结算日', en: 'Not Target Date' },
   settlement_soon: { zh: '临近结算', en: 'Settlement Soon' },
   market_settled: { zh: '市场已结算', en: 'Market Settled' },
-  market_inactive: { zh: '市场非活跃', en: 'Market Inactive' }
+  market_inactive: { zh: '市场非活跃', en: 'Market Inactive' },
+  weather_source_incomplete: { zh: '天气源不完整', en: 'Weather Sources Incomplete' },
+  low_data_quality: { zh: '低数据质量', en: 'Low Data Quality' },
+  low_weather_maturity: { zh: '短临成熟度低', en: 'Low Weather Maturity' },
+  suppressed_heating: { zh: '压温场景', en: 'Suppressed Heating Scenario' }
 };
 
 export function riskLabel(code: string, lang: Lang) {
@@ -16,4 +20,3 @@ export function riskLabel(code: string, lang: Lang) {
   if (!item) return code;
   return item[lang];
 }
-

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { syncAllNow, syncMarket5m, syncModel5m, syncWeather10m, syncSettledDaily } from '@/lib/services/refresh-service';
 
 async function main() {

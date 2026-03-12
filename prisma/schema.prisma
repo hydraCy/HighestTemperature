@@ -28,6 +28,7 @@ model Market {
   snapshots          Snapshot[]
   notes              Note[]
   settledResult      SettledResult?
+  forecastBiases     ForecastSourceBias[]
 
   @@index([cityName, targetDate])
   @@map("markets")
@@ -147,6 +148,7 @@ model Snapshot {
 
   market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
   modelRun           ModelRun? @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+  forecastBiases     ForecastSourceBias[]
 
   @@index([marketId, capturedAt])
   @@map("snapshots")
@@ -175,4 +177,26 @@ model SettledResult {
   market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
 
   @@map("settled_results")
+}
+
+model ForecastSourceBias {
+  id            String   @id @default(cuid())
+  marketId      String
+  snapshotId    String?
+  sourceCode    String
+  sourceGroup   String
+  forecastDate  DateTime
+  capturedAt    DateTime
+  predictedMax  Float
+  finalMax      Float
+  bias          Float
+  absError      Float
+  createdAt     DateTime @default(now())
+
+  market        Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  snapshot      Snapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([marketId, sourceCode, forecastDate])
+  @@index([marketId, forecastDate, sourceCode])
+  @@map("forecast_source_biases")
 }

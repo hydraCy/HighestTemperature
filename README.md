@@ -13,6 +13,7 @@
 - 自动抓取 **上海次日（T+1）** Polymarket 最高温盘口
 - 盘口、模型、EV、仓位建议一体化展示
 - Wunderground 口径结算抓取（历史/前一日）
+- 前一日多源预测偏差记录（用于持续优化）
 - 页面支持中英切换：`中文 / EN`
 
 ## 核心原则
@@ -107,6 +108,7 @@ URL 方式：
 - `snapshots`
 - `notes`
 - `settled_results`
+- `forecast_source_biases`（前一日各源 vs 结算偏差）
 
 ## 页面
 
@@ -121,6 +123,7 @@ URL 方式：
   - 温度趋势图
   - Edge 图
   - Snapshot 与 Notes
+  - 前一日各源偏差表（免费源/付费源）
 
 ## 刷新与任务
 
@@ -176,7 +179,8 @@ npm run dev
 平台默认使用真实数据（无 mock 回退）：
 
 - Polymarket 市场 API
-- Open-Meteo / wttr.in / met.no 等天气辅助源
+- 免费源：Open-Meteo / wttr.in / met.no
+- 付费源：WeatherAPI / QWeather（可选增强）
 - Wunderground / Weather.com 历史观测（结算温度）
 
 如果外部源失败：
@@ -184,6 +188,23 @@ npm run dev
 - 任务会报错或降级提示
 - 页面显示告警
 - 不会悄悄展示伪造盘口数据
+- 严格模式下，只要“必需天气源”里有任一缺失，会强制 `PASS`（仓位=0）
+
+`WEATHER_STRICT_SOURCES` 默认值：
+
+- `open_meteo,wttr,met_no`（免 key 可跑）
+- 如你希望更严格，可加付费源：
+- `open_meteo,wttr,met_no,weatherapi,qweather`
+
+## 站点绑定（重要）
+
+辅助天气源与结算口径都固定绑定到：
+
+- `Shanghai Pudong International Airport Station`
+- `ZSPD`
+- 坐标：`31.1443, 121.8083`
+
+这用于确保“研究对象”尽量贴近 Polymarket 规则指定站点。
 
 ## 测试
 

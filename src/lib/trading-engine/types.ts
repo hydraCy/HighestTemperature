@@ -35,6 +35,8 @@ export type TradingInput = {
   cloudCover: number;
   precipitationProb: number;
   windSpeed: number;
+  weatherMaturityScore?: number;
+  scenarioTag?: string;
   bins: BinInput[];
   probabilities: number[];
   resolutionReady: boolean;

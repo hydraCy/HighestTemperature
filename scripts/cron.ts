@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import cron from 'node-cron';
 import { syncMarket5m, syncModel5m, syncWeather10m, syncAllNow, syncSettledDaily } from '@/lib/services/refresh-service';
 

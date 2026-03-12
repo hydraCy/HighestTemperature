@@ -28,7 +28,7 @@ export async function getDashboardData() {
     include: {
       bins: { orderBy: { outcomeIndex: 'asc' } },
       resolutionMetadata: true,
-      weatherSnapshots: { orderBy: [{ observedAt: 'desc' }, { id: 'desc' }], take: 1 },
+      weatherSnapshots: { orderBy: { id: 'desc' }, take: 1 },
       modelRuns: { orderBy: { runAt: 'desc' }, take: 1, include: { outputs: true } },
       settledResult: true,
       snapshots: { orderBy: { capturedAt: 'desc' }, take: 20 },
@@ -79,9 +79,10 @@ export async function getMarketDetail(slug: string) {
     include: {
       bins: { orderBy: { outcomeIndex: 'asc' } },
       resolutionMetadata: true,
-      weatherSnapshots: { orderBy: [{ observedAt: 'desc' }, { id: 'desc' }], take: 30 },
+      weatherSnapshots: { orderBy: { id: 'desc' }, take: 30 },
       modelRuns: { orderBy: { runAt: 'desc' }, take: 30, include: { outputs: true } },
       snapshots: { orderBy: { capturedAt: 'desc' }, take: 30 },
+      forecastBiases: { orderBy: [{ forecastDate: 'desc' }, { absError: 'asc' }], take: 100 },
       settledResult: true,
       notes: { orderBy: { createdAt: 'desc' }, take: 50 }
     }
@@ -89,6 +90,12 @@ export async function getMarketDetail(slug: string) {
 
   if (!market) return null;
   const marketStatus = marketStatusOf(market);
+  const biasStats = await prisma.forecastSourceBias.groupBy({
+    by: ['sourceCode', 'sourceGroup'],
+    _count: { sourceCode: true },
+    _avg: { absError: true, bias: true },
+    orderBy: { _avg: { absError: 'asc' } }
+  });
 
   return {
     market,
@@ -98,6 +105,7 @@ export async function getMarketDetail(slug: string) {
     marketSource: fromJsonString<{ source?: string }>(market.rawJson, {}).source ?? 'unknown',
     weatherSource: fromJsonString<{ source?: string }>(market.weatherSnapshots[0]?.rawJson, {}).source ?? 'unknown',
     snapshots: market.snapshots,
-    settled: market.settledResult
+    settled: market.settledResult,
+    biasStats
   };
 }
