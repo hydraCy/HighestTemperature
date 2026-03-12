@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Market {
+  id                 String                  @id @default(cuid())
+  cityName           String                  @default("Shanghai")
+  eventId            String
+  marketSlug         String                  @unique
+  marketTitle        String
+  rulesText          String
+  volume             Float?
+  targetDate         DateTime
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  rawJson            String?
+
+  bins               MarketBin[]
+  resolutionMetadata ResolutionMetadata?
+  weatherSnapshots   WeatherAssistSnapshot[]
+  modelRuns          ModelRun[]
+  snapshots          Snapshot[]
+  notes              Note[]
+  settledResult      SettledResult?
+
+  @@index([cityName, targetDate])
+  @@map("markets")
+}
+
+model MarketBin {
+  id                 String   @id @default(cuid())
+  marketId           String
+  outcomeLabel       String
+  outcomeIndex       Int
+  marketPrice        Float
+  noMarketPrice      Float?
+  bestBid            Float?
+  bestAsk            Float?
+  spread             Float?
+  impliedProbability Float
+  updatedAt          DateTime @default(now())
+
+  market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@unique([marketId, outcomeIndex])
+  @@index([marketId])
+  @@map("market_bins")
+}
+
+model ResolutionMetadata {
+  id             String   @id @default(cuid())
+  marketId        String   @unique
+  stationName     String
+  stationCode     String
+  sourceName      String
+  sourceUrl       String
+  precisionRule   String
+  finalizedRule   String
+  revisionRule    String?
+  updatedAt       DateTime @default(now())
+
+  market          Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@map("resolution_metadata")
+}
+
+model WeatherAssistSnapshot {
+  id                 String   @id @default(cuid())
+  marketId           String
+  observedAt         DateTime
+  temperature2m      Float
+  humidity           Float?
+  cloudCover         Float?
+  precipitation      Float?
+  windSpeed          Float?
+  temp1hAgo          Float?
+  temp2hAgo          Float?
+  temp3hAgo          Float?
+  tempRise1h         Float?
+  tempRise2h         Float?
+  tempRise3h         Float?
+  maxTempSoFar       Float
+  rawJson            String?
+
+  market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@index([marketId, observedAt])
+  @@map("weather_assist_snapshots")
+}
+
+model ModelRun {
+  id                 String    @id @default(cuid())
+  marketId           String
+  runAt              DateTime  @default(now())
+  modelVersion       String
+  bestBin            String
+  edge               Float
+  tradeScore         Float
+  decision           String
+  recommendedPosition Float
+  timingScore        Float
+  weatherScore       Float
+  dataQualityScore   Float
+  explanation        String
+  riskFlagsJson      String
+  rawFeaturesJson    String
+
+  market             Market    @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outputs            ModelBinOutput[]
+  snapshots          Snapshot[]
+
+  @@index([marketId, runAt])
+  @@map("model_runs")
+}
+
+model ModelBinOutput {
+  id                 String   @id @default(cuid())
+  modelRunId         String
+  outcomeLabel       String
+  modelProbability   Float
+  marketPrice        Float
+  edge               Float
+
+  modelRun           ModelRun @relation(fields: [modelRunId], references: [id], onDelete: Cascade)
+
+  @@index([modelRunId])
+  @@map("model_bin_outputs")
+}
+
+model Snapshot {
+  id                 String   @id @default(cuid())
+  marketId           String
+  modelRunId         String?
+  capturedAt         DateTime @default(now())
+  marketPricesJson   String
+  weatherFeaturesJson String
+  modelOutputJson    String
+  tradingOutputJson  String
+  explanationText    String
+  riskFlagsJson      String
+
+  market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  modelRun           ModelRun? @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+
+  @@index([marketId, capturedAt])
+  @@map("snapshots")
+}
+
+model Note {
+  id                 String   @id @default(cuid())
+  marketId           String
+  noteText           String
+  createdAt          DateTime @default(now())
+
+  market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@index([marketId, createdAt])
+  @@map("notes")
+}
+
+model SettledResult {
+  id                 String   @id @default(cuid())
+  marketId           String   @unique
+  finalOutcomeLabel  String
+  finalValue         Float
+  settledAt          DateTime
+  sourceUrl          String
+
+  market             Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@map("settled_results")
+}
