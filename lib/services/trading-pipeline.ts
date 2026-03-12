@@ -49,6 +49,51 @@ function shanghaiDayRangeUtc(dateKey: string) {
   };
 }
 
+async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
+  openMeteo?: number | null;
+  wttr?: number | null;
+  metNo?: number | null;
+  weatherApi?: number | null;
+  qWeather?: number | null;
+  fused?: number | null;
+} | null) {
+  if (!sourceDailyMax) return null;
+  const stats = await prisma.forecastSourceBias.groupBy({
+    by: ['sourceCode'],
+    _avg: { bias: true, absError: true },
+    _count: { sourceCode: true }
+  });
+  const byCode = new Map(stats.map((s) => [s.sourceCode, s]));
+  const rows = [
+    { code: 'open_meteo', raw: sourceDailyMax.openMeteo },
+    { code: 'wttr', raw: sourceDailyMax.wttr },
+    { code: 'met_no', raw: sourceDailyMax.metNo },
+    { code: 'weatherapi', raw: sourceDailyMax.weatherApi },
+    { code: 'qweather', raw: sourceDailyMax.qWeather }
+  ].filter((r): r is { code: string; raw: number } => typeof r.raw === 'number' && Number.isFinite(r.raw));
+  if (!rows.length) return null;
+
+  let wSum = 0;
+  let xwSum = 0;
+  const breakdown: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }> = [];
+  for (const r of rows) {
+    const st = byCode.get(r.code);
+    const bias = st?._avg.bias ?? 0;
+    const mae = st?._avg.absError ?? 1.5;
+    const sampleSize = st?._count.sourceCode ?? 0;
+    const adjusted = r.raw - bias;
+    const weight = 1 / (mae + 0.25);
+    breakdown.push({ code: r.code, raw: r.raw, bias, mae, adjusted, weight, sampleSize });
+    wSum += weight;
+    xwSum += adjusted * weight;
+  }
+  if (wSum <= 0) return null;
+  return {
+    fused: xwSum / wSum,
+    breakdown
+  };
+}
+
 async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: Date, finalMax: number) {
   const prevKey = previousShanghaiDate(targetDate);
   const { start, end } = shanghaiDayRangeUtc(prevKey);
@@ -207,6 +252,13 @@ export async function refreshMarketData() {
       rawJson: toJsonString({ source: marketRes.source, isClosed: m.isClosed, isActive: m.isActive, endAt: m.targetDate.toISOString() })
     }
   });
+  await prisma.market.updateMany({
+    where: {
+      cityName: 'Shanghai',
+      marketSlug: { not: m.marketSlug }
+    },
+    data: { isActive: false }
+  });
 
   for (const bin of m.bins) {
     await prisma.marketBin.upsert({
@@ -307,9 +359,19 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
       };
     };
   }>(weather.rawJson, {});
-  const sourceDailyMax = weatherRaw.raw?.sourceDailyMax;
+  const sourceDailyMax = weatherRaw.raw?.sourceDailyMax as
+    | {
+        openMeteo?: number | null;
+        wttr?: number | null;
+        metNo?: number | null;
+        weatherApi?: number | null;
+        qWeather?: number | null;
+        fused?: number | null;
+      }
+    | undefined;
   const nowcasting = weatherRaw.raw?.nowcasting;
-  const fusedTargetMax = sourceDailyMax?.fused ?? weather.maxTempSoFar;
+  const biasAdjusted = await computeBiasAdjustedFusedTarget(sourceDailyMax ?? null);
+  const fusedTargetMax = biasAdjusted?.fused ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
   const isTargetDateToday = shanghaiDateEquals(market.targetDate, new Date());
 
   const modelCurrentTemp = isTargetDateToday
@@ -378,34 +440,48 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     maxSingleTradePercent
   });
   const strictDecision = enforceStrictWeatherSourceGate(decision, weather.rawJson);
+  const finalDecision = {
+    ...strictDecision,
+    decisionMode: 'realtime' as const,
+    isDailyOfficial: false,
+    dailyDateKey: shanghaiDateKey(new Date())
+  };
 
   const modelRun = await prisma.modelRun.create({
     data: {
       marketId: market.id,
       modelVersion: MODEL_VERSION,
-      bestBin: strictDecision.recommendedBin,
-      edge: strictDecision.edge,
-      tradeScore: strictDecision.tradeScore,
-      decision: strictDecision.decision,
-      recommendedPosition: strictDecision.positionSize,
-      timingScore: strictDecision.timingScore,
-      weatherScore: strictDecision.weatherScore,
-      dataQualityScore: strictDecision.dataQualityScore,
-      explanation: strictDecision.reason,
-      riskFlagsJson: toJsonString(strictDecision.riskFlags),
+      bestBin: finalDecision.recommendedBin,
+      edge: finalDecision.edge,
+      tradeScore: finalDecision.tradeScore,
+      decision: finalDecision.decision,
+      recommendedPosition: finalDecision.positionSize,
+      timingScore: finalDecision.timingScore,
+      weatherScore: finalDecision.weatherScore,
+      dataQualityScore: finalDecision.dataQualityScore,
+      explanation: finalDecision.reason,
+      riskFlagsJson: toJsonString(finalDecision.riskFlags),
       rawFeaturesJson: toJsonString({
         currentTemp: modelCurrentTemp,
         maxTempSoFar: modelMaxTemp,
         todayMaxTemp,
         isTargetDateToday,
-        recommendedSide: strictDecision.recommendedSide,
-        reasonZh: strictDecision.reasonZh,
-        reasonEn: strictDecision.reasonEn,
+        recommendedSide: finalDecision.recommendedSide,
+        reasonZh: finalDecision.reasonZh,
+        reasonEn: finalDecision.reasonEn,
         weatherMaturityScore: nowcasting?.weatherMaturityScore ?? null,
-        scenarioTag: nowcasting?.scenarioTag ?? null
+        scenarioTag: nowcasting?.scenarioTag ?? null,
+        calibratedFusedTemp: fusedTargetMax,
+        sourceCalibration: biasAdjusted?.breakdown ?? [],
+        dailyDecision: {
+          mode: 'realtime',
+          isOfficial: false,
+          dateKey: shanghaiDateKey(new Date()),
+          lockAt: null
+        }
       }),
       outputs: {
-        create: strictDecision.binOutputs.map((o) => ({
+        create: finalDecision.binOutputs.map((o) => ({
           outcomeLabel: o.outcomeLabel,
           modelProbability: o.modelProbability,
           marketPrice: o.marketPrice,
@@ -436,13 +512,13 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         sourceStatus: fromJsonString<{ raw?: { openMeteo?: string | null; wttr?: string | null; metNo?: string | null; weatherapi?: string | null; qweather?: string | null } }>(weather.rawJson, {}).raw ?? null
       }),
       modelOutputJson: toJsonString(modelRun.outputs),
-      tradingOutputJson: toJsonString(strictDecision),
-      explanationText: strictDecision.reason,
-      riskFlagsJson: toJsonString(strictDecision.riskFlags)
+      tradingOutputJson: toJsonString(finalDecision),
+      explanationText: finalDecision.reason,
+      riskFlagsJson: toJsonString(finalDecision.riskFlags)
     }
   });
 
-  return { market, weather, modelRun, decision: strictDecision };
+  return { market, weather, modelRun, decision: finalDecision };
 }
 
 export async function runFullRefresh() {

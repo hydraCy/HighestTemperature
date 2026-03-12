@@ -42,6 +42,12 @@ export async function getDashboardData() {
   const latestRun = market.modelRuns[0] ?? null;
   const latestWeather = market.weatherSnapshots[0] ?? null;
   const marketStatus = marketStatusOf(market);
+  const biasStats = await prisma.forecastSourceBias.groupBy({
+    by: ['sourceCode', 'sourceGroup'],
+    _count: { sourceCode: true },
+    _avg: { absError: true, bias: true },
+    orderBy: { _avg: { absError: 'asc' } }
+  });
 
   return {
     market,
@@ -68,6 +74,7 @@ export async function getDashboardData() {
           reasonEn: fromJsonString<{ reasonEn?: string }>(latestRun.rawFeaturesJson, {}).reasonEn ?? latestRun.explanation
         }
       : null,
+    biasStats,
     snapshots: market.snapshots,
     notes: market.notes
   };

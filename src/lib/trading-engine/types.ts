@@ -61,5 +61,9 @@ export type TradingDecisionOutput = {
   reason: string;
   reasonZh: string;
   reasonEn: string;
+  decisionMode?: 'realtime' | 'daily_once';
+  isDailyOfficial?: boolean;
+  dailyLockAt?: string;
+  dailyDateKey?: string;
   binOutputs: ModelBinOutput[];
 };

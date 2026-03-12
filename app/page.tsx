@@ -6,6 +6,7 @@ import { SiteShell } from '@/components/layout/site-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RefreshAllButton } from '@/components/market/refresh-all-button';
+import { LiveMarketPoller } from '@/components/market/live-market-poller';
 import { getDashboardData } from '@/lib/services/query';
 import { fromJsonString } from '@/lib/utils/json';
 import { riskLabel } from '@/lib/i18n/risk-labels';
@@ -87,6 +88,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           neutral: 'Neutral',
           fused: 'Fused',
           whyForecast: 'Why this forecast value',
+          resolutionPriorityNote: 'Note: auxiliary weather sources are not final settlement basis. Final settlement follows Wunderground ZSPD.',
           fusionMethod: 'Fusion Method',
           sourceSpread: 'Cross-source Spread',
           confidence: 'Confidence',
@@ -117,6 +119,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherScore: 'Weather Stability Score',
           dataQualityScore: 'Data Quality Score',
           noDecision: 'No decision yet. Please refresh.',
+          sourceBiasTitle: 'Source Bias vs ZSPD (Historical)',
+          avgBias: 'Avg Bias',
+          mae: 'MAE',
+          samples: 'N',
           detail: 'View Details',
           allBins: 'All Bins',
           bin: 'Bin',
@@ -204,6 +210,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           neutral: '中性',
           fused: '融合',
           whyForecast: '为什么是这个预测值',
+          resolutionPriorityNote: '注意：辅助天气源不是最终结算依据，最终结算以 Wunderground 的 ZSPD 站点为准。',
           fusionMethod: '融合方法',
           sourceSpread: '源间分歧',
           confidence: '置信度',
@@ -234,6 +241,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherScore: '天气稳定分',
           dataQualityScore: '数据质量分',
           noDecision: '暂无决策，请刷新后查看。',
+          sourceBiasTitle: '数据源相对ZSPD历史偏差',
+          avgBias: '平均偏差',
+          mae: 'MAE',
+          samples: '样本数',
           detail: '查看详情',
           allBins: '全部盘口（Bin）',
           bin: '盘口',
@@ -288,6 +299,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   } | undefined)?.nowcasting;
   const forecastExplain = (weatherRaw.raw as { forecastExplain?: { zh?: string; en?: string; method?: string; confidence?: 'high' | 'medium' | 'low' } } | undefined)?.forecastExplain;
   const resolutionSourceStatus = (weatherRaw.raw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
+  const decisionMeta = (data?.latestDecision?.reasonMeta ?? {}) as {
+    calibratedFusedTemp?: number;
+    sourceCalibration?: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }>;
+  };
   const statusLabel = (s?: string) => {
     if (s === 'ok') return t.statusOk;
     if (s === 'no_data') return t.statusNoData;
@@ -343,6 +358,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     })
     .sort((a, b) => b.netEdge - a.netEdge)
     .slice(0, 8);
+  const biasStats = data?.biasStats ?? [];
+  const marketUpdatedAt = (data?.market.bins ?? [])
+    .map((b) => b.updatedAt ? new Date(b.updatedAt).getTime() : 0)
+    .reduce((acc, x) => Math.max(acc, x), 0);
+  const marketUpdatedAtIso = marketUpdatedAt > 0 ? new Date(marketUpdatedAt).toISOString() : null;
 
   return (
     <SiteShell currentPath="/" lang={lang}>
@@ -358,6 +378,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <RefreshAllButton lang={lang} />
         </div>
       </div>
+      <LiveMarketPoller lang={lang} lastUpdatedAt={marketUpdatedAtIso} />
 
       {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady) && (
         <Card className="border-amber-500/30">
@@ -500,7 +521,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="grid gap-2 md:grid-cols-3">
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.dayMaxForecast}</p>
-                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.fused != null ? `${sourceDailyMax.fused.toFixed(1)}°C` : '-'}</p>
+                <p className="text-lg font-semibold">{strictReady && (decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused) != null ? `${(decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused)?.toFixed(1)}°C` : '-'}</p>
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.sourceSpread}</p>
@@ -518,6 +539,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
               <p className="text-muted-foreground">
                 {t.fusionMethod}: {strictReady ? (forecastExplain?.method ?? '-') : '-'}
               </p>
+              <p className="text-amber-300">{t.resolutionPriorityNote}</p>
             </div>
 
             <div className="rounded border border-border/60 p-2 text-xs space-y-1">
@@ -575,6 +597,21 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="rounded border border-border/60 p-2 text-xs">
+              <p className="mb-2 font-medium">{t.sourceBiasTitle}</p>
+              <div className="space-y-1">
+                {(biasStats.length ? biasStats : []).map((s) => (
+                  <p key={`${s.sourceCode}-${s.sourceGroup}`} className="grid grid-cols-12 gap-2">
+                    <span className="col-span-3">{s.sourceCode}</span>
+                    <span className="col-span-3 text-muted-foreground">{t.avgBias}: {s._avg.bias?.toFixed(2) ?? '-'}°C</span>
+                    <span className="col-span-3 text-muted-foreground">{t.mae}: {s._avg.absError?.toFixed(2) ?? '-'}°C</span>
+                    <span className="col-span-3 text-muted-foreground">{t.samples}: {s._count.sourceCode}</span>
+                  </p>
+                ))}
+                {!biasStats.length && <p className="text-muted-foreground">-</p>}
+              </div>
             </div>
           </CardContent>
         </Card>
