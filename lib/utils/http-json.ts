@@ -13,21 +13,20 @@ const noProxyEnv = {
   ALL_PROXY: ''
 };
 
-async function resolveHostViaDoh(hostname: string): Promise<string | null> {
+async function resolveHostViaDoh(hostname: string): Promise<string[]> {
   try {
     const res = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=A`, {
       headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (ShanghaiDecisionBot)' }
     });
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const json = (await res.json()) as { Answer?: Array<{ type?: number; data?: string }> };
-    const ip = (json.Answer ?? []).find((a) => a.type === 1 && typeof a.data === 'string')?.data;
-    return ip ?? null;
+    return Array.from(new Set((json.Answer ?? []).filter((a) => a.type === 1 && typeof a.data === 'string').map((a) => a.data as string)));
   } catch {
-    return null;
+    return [];
   }
 }
 
-async function resolveHostViaDohCurl(hostname: string): Promise<string | null> {
+async function resolveHostViaDohCurl(hostname: string): Promise<string[]> {
   const providers = [
     {
       host: 'dns.google',
@@ -49,6 +48,7 @@ async function resolveHostViaDohCurl(hostname: string): Promise<string | null> {
     }
   ] as const;
 
+  const ips: string[] = [];
   for (const env of [process.env, noProxyEnv]) {
     for (const p of providers) {
       try {
@@ -68,33 +68,44 @@ async function resolveHostViaDohCurl(hostname: string): Promise<string | null> {
           { maxBuffer: 1024 * 1024, env }
         );
         const json = JSON.parse(stdout) as { Answer?: Array<{ type?: number; data?: string }> };
-        const ip = (json.Answer ?? []).find((a) => a.type === 1 && typeof a.data === 'string')?.data;
-        if (ip) return ip;
+        for (const ans of json.Answer ?? []) {
+          if (ans.type === 1 && typeof ans.data === 'string') ips.push(ans.data);
+        }
       } catch {
         // try next provider
       }
     }
   }
-  return null;
+  return Array.from(new Set(ips));
 }
 
-async function resolveHostViaPublicDns(hostname: string): Promise<string | null> {
+async function resolveHostViaPublicDns(hostname: string): Promise<string[]> {
   const servers = [
     ['8.8.8.8'],
     ['1.1.1.1'],
     ['223.5.5.5']
   ];
+  const ips: string[] = [];
   for (const s of servers) {
     try {
       const r = new Resolver();
       r.setServers(s);
-      const ips = await r.resolve4(hostname);
-      if (ips.length) return ips[0];
+      const resolved = await r.resolve4(hostname);
+      if (resolved.length) {
+        for (const ip of resolved) ips.push(ip);
+      }
     } catch {
       // try next resolver
     }
   }
-  return null;
+  return Array.from(new Set(ips));
+}
+
+async function resolveCandidateIps(host: string) {
+  const direct = await resolveHostViaPublicDns(host);
+  const dohCurl = await resolveHostViaDohCurl(host);
+  const doh = await resolveHostViaDoh(host);
+  return Array.from(new Set([...direct, ...dohCurl, ...doh]));
 }
 
 async function tryCurlJson(url: string, timeoutMs: number, env: NodeJS.ProcessEnv, resolveIp?: string) {
@@ -153,16 +164,22 @@ export async function fetchJsonWithCurlFallback(url: string, timeoutMs = 12000) 
         return await tryCurlJson(url, timeoutMs, noProxyEnv);
       } catch (curlErr) {
         const host = new URL(url).hostname;
-        const ip =
-          (await resolveHostViaPublicDns(host)) ??
-          (await resolveHostViaDohCurl(host)) ??
-          (await resolveHostViaDoh(host));
-        if (!ip) throw curlErr;
-        try {
-          return await tryCurlJson(url, timeoutMs, process.env, ip);
-        } catch {
-          return await tryCurlJson(url, timeoutMs, noProxyEnv, ip);
+        const ips = await resolveCandidateIps(host);
+        if (!ips.length) throw curlErr;
+        let lastErr: unknown = curlErr;
+        for (const ip of ips) {
+          try {
+            return await tryCurlJson(url, timeoutMs, process.env, ip);
+          } catch (e) {
+            lastErr = e;
+          }
+          try {
+            return await tryCurlJson(url, timeoutMs, noProxyEnv, ip);
+          } catch (e) {
+            lastErr = e;
+          }
         }
+        throw lastErr;
       }
     }
   }
@@ -202,16 +219,22 @@ export async function fetchTextWithCurlFallback(url: string, timeoutMs = 12000) 
         return await tryCurlText(url, timeoutMs, noProxyEnv);
       } catch (curlErr) {
         const host = new URL(url).hostname;
-        const ip =
-          (await resolveHostViaPublicDns(host)) ??
-          (await resolveHostViaDohCurl(host)) ??
-          (await resolveHostViaDoh(host));
-        if (!ip) throw curlErr;
-        try {
-          return await tryCurlText(url, timeoutMs, process.env, ip);
-        } catch {
-          return await tryCurlText(url, timeoutMs, noProxyEnv, ip);
+        const ips = await resolveCandidateIps(host);
+        if (!ips.length) throw curlErr;
+        let lastErr: unknown = curlErr;
+        for (const ip of ips) {
+          try {
+            return await tryCurlText(url, timeoutMs, process.env, ip);
+          } catch (e) {
+            lastErr = e;
+          }
+          try {
+            return await tryCurlText(url, timeoutMs, noProxyEnv, ip);
+          } catch (e) {
+            lastErr = e;
+          }
         }
+        throw lastErr;
       }
     }
   }
@@ -225,12 +248,17 @@ export async function fetchTextWithCurlOnly(url: string, timeoutMs = 12000) {
       return await tryCurlText(url, timeoutMs, noProxyEnv);
     } catch (curlErr) {
       const host = new URL(url).hostname;
-      const ip =
-        (await resolveHostViaPublicDns(host)) ??
-        (await resolveHostViaDohCurl(host)) ??
-        (await resolveHostViaDoh(host));
-      if (!ip) throw curlErr;
-      return await tryCurlText(url, timeoutMs, noProxyEnv, ip);
+      const ips = await resolveCandidateIps(host);
+      if (!ips.length) throw curlErr;
+      let lastErr: unknown = curlErr;
+      for (const ip of ips) {
+        try {
+          return await tryCurlText(url, timeoutMs, noProxyEnv, ip);
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr;
     }
   }
 }
