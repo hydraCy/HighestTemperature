@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "jobs": "tsx scripts/cron.ts",
     "job:once": "tsx scripts/run-job-once.ts",
+    "compare:openmeteo-wu": "tsx scripts/compare-openmeteo-wunderground.ts",
     "test": "tsx --test tests/*.test.ts"
   },
   "prisma": {

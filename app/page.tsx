@@ -524,7 +524,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="grid gap-2 md:grid-cols-3">
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.dayMaxForecast}</p>
-                <p className="text-lg font-semibold">{strictReady && (decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused) != null ? `${(decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused)?.toFixed(1)}°C` : '-'}</p>
+                <p className="text-lg font-semibold">{strictReady && (decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused) != null ? `${Math.round(decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused ?? 0)}°C` : '-'}</p>
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.sourceSpread}</p>
@@ -548,10 +548,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="rounded border border-border/60 p-2 text-xs space-y-1">
               <p className="font-medium">{t.sourceBreakdown}</p>
               <p>
-                <span className="text-muted-foreground">{t.freeSources}</span> | Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${sourceDailyMax.openMeteo.toFixed(1)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${sourceDailyMax.wttr.toFixed(1)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${sourceDailyMax.metNo.toFixed(1)}°C` : '-'}
+                <span className="text-muted-foreground">{t.freeSources}</span> | Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${Math.round(sourceDailyMax.openMeteo)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${Math.round(sourceDailyMax.wttr)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${Math.round(sourceDailyMax.metNo)}°C` : '-'}
               </p>
               <p>
-                <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${sourceDailyMax.weatherApi.toFixed(1)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina)?.toFixed(1)}°C` : '-'}
+                <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${Math.round(sourceDailyMax.weatherApi)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${Math.round((sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) ?? 0)}°C` : '-'}
               </p>
             </div>
 

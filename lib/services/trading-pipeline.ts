@@ -63,6 +63,11 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
     _avg: { bias: true, absError: true },
     _count: { sourceCode: true }
   });
+  const totalSamples = stats.reduce((acc, s) => acc + (s._count.sourceCode ?? 0), 0);
+  if (totalSamples < 20) {
+    // Prevent overfitting before we have enough settled history.
+    return null;
+  }
   const byCode = new Map(stats.map((s) => [s.sourceCode, s]));
   const rows = [
     { code: 'open_meteo', raw: sourceDailyMax.openMeteo },
@@ -72,6 +77,8 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
     { code: 'qweather', raw: sourceDailyMax.qWeather }
   ].filter((r): r is { code: string; raw: number } => typeof r.raw === 'number' && Number.isFinite(r.raw));
   if (!rows.length) return null;
+  const rowsWithHistory = rows.filter((r) => (byCode.get(r.code)?._count.sourceCode ?? 0) > 0);
+  if (rowsWithHistory.length < 2) return null;
 
   let wSum = 0;
   let xwSum = 0;
@@ -402,6 +409,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     bins: market.bins.map((b) => b.outcomeLabel),
     currentTemp: modelCurrentTemp,
     maxTempSoFar: modelMaxTemp,
+    observedMaxTemp: todayMaxTemp,
     tempRise1h: modelTempRise1h,
     tempRise2h: modelTempRise2h,
     tempRise3h: modelTempRise3h,

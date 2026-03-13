@@ -36,6 +36,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const probs = normalizeProbabilities(input.probabilities);
   const minEdgeToTrade = Number(process.env.MIN_EDGE_TO_TRADE ?? '0.03');
   const minUpsideToTrade = Number(process.env.MIN_UPSIDE_TO_TRADE ?? '0.05');
+  const minSideProbToTrade = Number(process.env.MIN_SIDE_PROB_TO_TRADE ?? '0.55');
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
 
   const outputs = input.bins.map((bin, idx) => {
@@ -68,16 +69,25 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const candidates = outputs
     .map((o) => {
       const entryPrice = o.bestSide === 'YES' ? o.marketPrice : o.noMarketPrice;
+      const sideProbability = o.bestSide === 'YES' ? o.modelProbability : o.modelNoProbability;
       return {
         ...o,
         netEdge: o.edge,
-        upside: 1 - entryPrice
+        upside: 1 - entryPrice,
+        sideProbability,
+        qualityScore: o.edge * sideProbability
       };
     })
-    .filter((o) => o.netEdge >= minEdgeToTrade && o.upside >= minUpsideToTrade)
-    .sort((a, b) => b.netEdge - a.netEdge);
+    .filter((o) => o.netEdge >= minEdgeToTrade && o.upside >= minUpsideToTrade && o.sideProbability >= minSideProbToTrade)
+    .sort((a, b) => b.qualityScore - a.qualityScore || b.netEdge - a.netEdge);
   const bestRaw = [...outputs].sort((a, b) => b.edge - a.edge)[0] ?? outputs[0];
-  const best = candidates[0] ?? (bestRaw ? { ...bestRaw, netEdge: bestRaw.edge, upside: 1 - (bestRaw.bestSide === 'YES' ? bestRaw.marketPrice : bestRaw.noMarketPrice) } : null);
+  const best = candidates[0] ?? (bestRaw ? {
+    ...bestRaw,
+    netEdge: bestRaw.edge,
+    upside: 1 - (bestRaw.bestSide === 'YES' ? bestRaw.marketPrice : bestRaw.noMarketPrice),
+    sideProbability: bestRaw.bestSide === 'YES' ? bestRaw.modelProbability : bestRaw.modelNoProbability,
+    qualityScore: bestRaw.edge * (bestRaw.bestSide === 'YES' ? bestRaw.modelProbability : bestRaw.modelNoProbability)
+  } : null);
   const edge = best?.netEdge ?? 0;
 
   const { hour, minute } = localHourMinute(input.now, timezone);
@@ -138,6 +148,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     tempRise1h: input.tempRise1h
   });
   if (!candidates.length) riskFlags.push('no_profit_edge');
+  if (best && best.sideProbability < minSideProbToTrade) riskFlags.push('low_confidence');
   if (maturity != null && maturity < 45) riskFlags.push('low_weather_maturity');
   if (input.scenarioTag === 'suppressed_heating') riskFlags.push('suppressed_heating');
   if (isTargetDateMismatch) riskFlags.push('not_target_date');
@@ -172,13 +183,13 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const inactiveTip = isInactive ? '该市场已非 active 状态，不建议下单。' : '';
   const inactiveTipEn = isInactive ? 'Market is not active; placing orders is not recommended.' : '';
   const profitabilityTip = !candidates.length
-    ? '当前没有满足净利润门槛的盘口（已扣除交易成本与剩余上涨空间约束），建议 PASS。'
-    : `可交易净Edge约 ${(edge * 100).toFixed(1)}%，优先方向为 ${best?.bestSide ?? '-'}。`;
+    ? `当前没有同时满足净利润与胜率门槛的盘口（最小胜率 ${(minSideProbToTrade * 100).toFixed(0)}%），建议 PASS。`
+    : `可交易净Edge约 ${(edge * 100).toFixed(1)}%，优先方向为 ${best?.bestSide ?? '-'}，对应胜率约 ${((best?.sideProbability ?? 0) * 100).toFixed(0)}%。`;
   const profitabilityTipEn = !candidates.length
-    ? 'No bin meets net-profit threshold (after cost and remaining upside constraints); PASS is recommended.'
-    : `Tradable net edge is about ${(edge * 100).toFixed(1)}%, preferred side is ${best?.bestSide ?? '-'}.`;
-  const reasonZh = `目标日全天最高温预测约 ${input.maxTempSoFar.toFixed(1)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${mismatchTip}${settleTip}${inactiveTip}`;
-  const reasonEn = `Forecast max temperature for target day is about ${input.maxTempSoFar.toFixed(1)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
+    ? `No bin meets both net-profit and win-rate thresholds (min win-rate ${(minSideProbToTrade * 100).toFixed(0)}%); PASS is recommended.`
+    : `Tradable net edge is about ${(edge * 100).toFixed(1)}%, preferred side is ${best?.bestSide ?? '-'} with estimated win-rate ${((best?.sideProbability ?? 0) * 100).toFixed(0)}%.`;
+  const reasonZh = `目标日全天最高温预测约 ${Math.round(input.maxTempSoFar)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${mismatchTip}${settleTip}${inactiveTip}`;
+  const reasonEn = `Forecast max temperature for target day is about ${Math.round(input.maxTempSoFar)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
   const reason = `${reasonZh}\nEN: ${reasonEn}`;
 
   const finalDecision = isClosedByTime || isInactive ? 'PASS' : decision;

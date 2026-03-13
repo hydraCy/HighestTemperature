@@ -484,13 +484,22 @@ function buildAssistFromTargetDay(
   const prev2 = mergedRows[Math.max(0, peakIdx - 2)] ?? prev1;
   const prev3 = mergedRows[Math.max(0, peakIdx - 3)] ?? prev2;
 
-  const rowDailyMax = mergedRows.length ? Math.max(...mergedRows.map((r) => r.temp)) : (weatherApiDailyMax ?? qWeatherDailyMax ?? peak.temp);
-  const openDailyMax = openTarget.length ? Math.max(...openTarget.map((r) => r.temp)) : null;
-  const wttrDailyMax = wttrTarget.length ? Math.max(...wttrTarget.map((r) => r.temp)) : null;
-  const metNoDailyMax = metTarget.length ? Math.max(...metTarget.map((r) => r.temp)) : null;
-  const fusedDailyMax = mergeMedian([openDailyMax ?? undefined, wttrDailyMax ?? undefined, metNoDailyMax ?? undefined, weatherApiDailyMax ?? undefined, qWeatherDailyMax ?? undefined]);
-  const dailyMax = fusedDailyMax > 0 ? fusedDailyMax : rowDailyMax;
-  const sourceSpread = spreadOf([openDailyMax, wttrDailyMax, metNoDailyMax, weatherApiDailyMax, qWeatherDailyMax]);
+  const rowDailyMaxRaw = mergedRows.length ? Math.max(...mergedRows.map((r) => r.temp)) : (weatherApiDailyMax ?? qWeatherDailyMax ?? peak.temp);
+  const openDailyMax = toResolutionInt(openTarget.length ? Math.max(...openTarget.map((r) => r.temp)) : null);
+  const wttrDailyMax = toResolutionInt(wttrTarget.length ? Math.max(...wttrTarget.map((r) => r.temp)) : null);
+  const metNoDailyMax = toResolutionInt(metTarget.length ? Math.max(...metTarget.map((r) => r.temp)) : null);
+  const weatherApiDailyMaxInt = toResolutionInt(weatherApiDailyMax);
+  const qWeatherDailyMaxInt = toResolutionInt(qWeatherDailyMax);
+  const rowDailyMax = toResolutionInt(rowDailyMaxRaw) ?? 0;
+  const fusedDailyMax = mergeMedian([
+    openDailyMax ?? undefined,
+    wttrDailyMax ?? undefined,
+    metNoDailyMax ?? undefined,
+    weatherApiDailyMaxInt ?? undefined,
+    qWeatherDailyMaxInt ?? undefined
+  ]);
+  const dailyMax = fusedDailyMax > 0 ? Math.round(fusedDailyMax) : rowDailyMax;
+  const sourceSpread = spreadOf([openDailyMax, wttrDailyMax, metNoDailyMax, weatherApiDailyMaxInt, qWeatherDailyMaxInt]);
   const confidence =
     sourceSpread == null ? 'low' : sourceSpread <= 1 ? 'high' : sourceSpread <= 2.5 ? 'medium' : 'low';
 
@@ -521,20 +530,25 @@ function buildAssistFromTargetDay(
         openMeteo: openDailyMax,
         wttr: wttrDailyMax,
         metNo: metNoDailyMax,
-        weatherApi: weatherApiDailyMax,
-        qWeather: qWeatherDailyMax,
-        cmaChina: qWeatherDailyMax,
+        weatherApi: weatherApiDailyMaxInt,
+        qWeather: qWeatherDailyMaxInt,
+        cmaChina: qWeatherDailyMaxInt,
         fused: dailyMax,
         spread: sourceSpread
       },
       forecastExplain: {
         method: 'median_of_sources',
         confidence,
-        zh: `次日最高温由多源日高温预测融合得到：Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMax ?? '-'}°C / QWeather ${qWeatherDailyMax ?? '-'}°C，取中位数得到 ${dailyMax.toFixed(1)}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。`,
-        en: `Next-day max temperature is fused from multiple source daily highs: Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMax ?? '-'}°C / QWeather ${qWeatherDailyMax ?? '-'}°C. We use median to get ${dailyMax.toFixed(1)}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}.`
+        zh: `次日最高温由多源日高温预测融合得到：Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C，取中位数得到 ${dailyMax}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。`,
+        en: `Next-day max temperature is fused from multiple source daily highs: Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C. Median result is ${dailyMax}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}.`
       }
     }
   };
+}
+
+function toResolutionInt(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.round(value);
 }
 
 function toOpenMeteoRows(hourly: z.infer<typeof openMeteoSchema>['hourly']): HourlyPoint[] {

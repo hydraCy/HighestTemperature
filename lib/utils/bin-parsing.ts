@@ -15,21 +15,25 @@ export function parseTemperatureBin(label: string): ParsedBin {
     };
   }
 
-  const over = normalized.match(/(?:>=|>|above|over|\+)\s*(-?\d+(?:\.\d+)?)/i);
+  const over = normalized.match(/(>=|>|above|over|\+)\s*(-?\d+(?:\.\d+)?)/i);
   if (over) {
+    const op = over[1];
+    const base = Number(over[2]);
     return {
       raw: label,
-      min: Number(over[1]),
+      min: op === '>' ? base + 0.5 : base - 0.5,
       max: null
     };
   }
 
-  const under = normalized.match(/(?:<=|<|below|under)\s*(-?\d+(?:\.\d+)?)/i);
+  const under = normalized.match(/(<=|<|below|under)\s*(-?\d+(?:\.\d+)?)/i);
   if (under) {
+    const op = under[1];
+    const base = Number(under[2]);
     return {
       raw: label,
       min: null,
-      max: Number(under[1])
+      max: op === '<' ? base - 0.5 : base + 0.5
     };
   }
 
@@ -38,8 +42,8 @@ export function parseTemperatureBin(label: string): ParsedBin {
     const n = Number(single[0]);
     return {
       raw: label,
-      min: n,
-      max: n + 1
+      min: n - 0.5,
+      max: n + 0.5
     };
   }
 
