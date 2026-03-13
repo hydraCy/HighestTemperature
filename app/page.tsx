@@ -49,6 +49,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           statusFetchError: 'fetch_error',
           statusParseError: 'parse_error',
           statusSkipped: 'skipped',
+          statusFallbackProxy: 'fallback_proxy',
           settlementTime: 'Settlement Time',
           minsToSettlement: 'Minutes to Settlement',
           mins: 'min',
@@ -171,6 +172,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           statusFetchError: '拉取失败',
           statusParseError: '解析失败',
           statusSkipped: '未启用',
+          statusFallbackProxy: '代理回填',
           settlementTime: '结算时间',
           minsToSettlement: '距结算',
           mins: '分钟',
@@ -309,6 +311,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     if (s === 'fetch_error') return t.statusFetchError;
     if (s === 'parse_error') return t.statusParseError;
     if (s === 'skipped') return t.statusSkipped;
+    if (s === 'fallback_proxy') return t.statusFallbackProxy;
     return s ?? '-';
   };
   const apiRows = [

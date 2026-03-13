@@ -144,6 +144,8 @@ npm run db:seed
 npm run dev
 ```
 
+`npm run db:seed` now only clears historical rows and does not insert any demo/mock data.
+
 ## Port Behavior (3000 / 3001)
 
 - `npm run dev` defaults to `3000`

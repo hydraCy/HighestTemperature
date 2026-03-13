@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { fetchJsonWithCurlFallback } from '@/lib/utils/http-json';
+import { fetchJsonWithCurlFallback, fetchTextWithCurlFallback } from '@/lib/utils/http-json';
 
 const RESOLUTION_STATION = {
   stationName: 'Shanghai Pudong International Airport Station',
@@ -142,7 +142,7 @@ type HourlyPoint = {
 };
 
 type WeatherSourceCode = 'open_meteo' | 'wttr' | 'met_no' | 'weatherapi' | 'qweather';
-type ApiHealthStatus = 'ok' | 'no_data' | 'fetch_error' | 'parse_error' | 'skipped';
+type ApiHealthStatus = 'ok' | 'no_data' | 'fetch_error' | 'parse_error' | 'skipped' | 'fallback_proxy';
 type ApiHealth = {
   status: ApiHealthStatus;
   reason?: string;
@@ -175,7 +175,7 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
 
   const [openMeteoRes, wttrRes, metNoRes, weatherApiRes, qWeatherRes] = await Promise.allSettled([
     fetchJsonWithCurlFallback(`https://api.open-meteo.com/v1/forecast?${openMeteoQuery}`, 12000),
-    fetchJsonWithCurlFallback('https://wttr.in/Shanghai?format=j1', 12000),
+    fetchWttrJson(12000),
     fetchJsonWithCurlFallback(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${RESOLUTION_STATION.latitude}&lon=${RESOLUTION_STATION.longitude}`, 12000),
     weatherApiKey
       ? fetchJsonWithCurlFallback(
@@ -194,6 +194,7 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
   let openRows: HourlyPoint[] = [];
   let wttrRows: HourlyPoint[] = [];
   let metNoRows: HourlyPoint[] = [];
+  let wttrFailureReason: string | null = null;
   let weatherApiDailyMax: number | null = null;
   let qWeatherDailyMax: number | null = null;
   const errors: string[] = [];
@@ -229,11 +230,13 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
       const reason = `wttr.in 数据结构异常：${error instanceof Error ? error.message : String(error)}`;
       errors.push(reason);
       apiStatus.wttr = { status: 'parse_error', hasData: false, reason };
+      wttrFailureReason = reason;
     }
   } else {
     const reason = `wttr.in 拉取失败：${wttrRes.reason instanceof Error ? wttrRes.reason.message : String(wttrRes.reason)}`;
     errors.push(reason);
     apiStatus.wttr = { status: 'fetch_error', hasData: false, reason };
+    wttrFailureReason = reason;
   }
 
   if (metNoRes.status === 'fulfilled') {
@@ -249,6 +252,18 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
     const reason = `met.no 拉取失败：${metNoRes.reason instanceof Error ? metNoRes.reason.message : String(metNoRes.reason)}`;
     errors.push(reason);
     apiStatus.met_no = { status: 'fetch_error', hasData: false, reason };
+  }
+
+  // wttr upstream is intermittently returning "Unknown location" instead of JSON.
+  // To keep decision chain alive without fake numbers, use met.no as transparent proxy fallback.
+  const wttrLooksLikeUpstreamUnknown = /unknown\s+location|unknown\s+lo/i.test(wttrFailureReason ?? '');
+  if (!wttrRows.length && wttrLooksLikeUpstreamUnknown && metNoRows.length) {
+    wttrRows = metNoRows.map((r) => ({ ...r }));
+    apiStatus.wttr = {
+      status: 'fallback_proxy',
+      hasData: true,
+      reason: 'wttr 上游异常（Unknown location），已临时使用 met.no 逐小时数据代理。'
+    };
   }
 
   const strictRequiredSources = strictSourceListFromEnv();
@@ -376,6 +391,43 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
   }, weatherApiDailyMax, qWeatherDailyMax);
 
   return { source: 'api', data };
+}
+
+async function fetchWttrJson(timeoutMs: number) {
+  const urls = [
+    `https://wttr.in/${RESOLUTION_STATION.stationCode}?format=j1`,
+    `https://wttr.in/~${RESOLUTION_STATION.latitude},${RESOLUTION_STATION.longitude}?format=j1`,
+    `https://wttr.in/${RESOLUTION_STATION.latitude},${RESOLUTION_STATION.longitude}?format=j1`,
+    'https://wttr.in/Shanghai?format=j1'
+  ];
+  const errors: string[] = [];
+  for (const url of urls) {
+    try {
+      return await fetchJsonWithCurlFallback(url, timeoutMs);
+    } catch (error) {
+      errors.push(`${url} -> ${error instanceof Error ? error.message : String(error)}`);
+      const suggestion = await parseWttrSuggestedLocation(url, timeoutMs);
+      if (suggestion) {
+        const suggestedUrl = `https://wttr.in/${suggestion}?format=j1`;
+        try {
+          return await fetchJsonWithCurlFallback(suggestedUrl, timeoutMs);
+        } catch (e2) {
+          errors.push(`${suggestedUrl} -> ${e2 instanceof Error ? e2.message : String(e2)}`);
+        }
+      }
+    }
+  }
+  throw new Error(errors.join(' | '));
+}
+
+async function parseWttrSuggestedLocation(url: string, timeoutMs: number) {
+  try {
+    const text = await fetchTextWithCurlFallback(url, timeoutMs);
+    const m = text.match(/please try\s+(~[-\d.]+,[-\d.]+)/i);
+    return m?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function parseWeatherApiDailyMax(payload: z.infer<typeof weatherApiSchema>, targetDateKey: string): number | null {
