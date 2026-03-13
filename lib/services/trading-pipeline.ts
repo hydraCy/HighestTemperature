@@ -326,6 +326,11 @@ export async function refreshWeatherData() {
 
   const weatherRes = await fetchShanghaiWeatherAssist(market.targetDate);
   const w = weatherRes.data;
+  const weatherTargetDate = (w.raw as { targetDate?: string } | undefined)?.targetDate;
+  const marketTargetDate = shanghaiDateKey(market.targetDate);
+  if (weatherTargetDate && weatherTargetDate !== marketTargetDate) {
+    throw new Error(`天气数据日期不一致：weather=${weatherTargetDate}, market=${marketTargetDate}`);
+  }
 
   return prisma.weatherAssistSnapshot.create({
     data: {
@@ -394,19 +399,23 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         metNo?: number | null;
         weatherApi?: number | null;
         qWeather?: number | null;
+        fusedContinuous?: number | null;
+        fusedAnchor?: number | null;
         fused?: number | null;
       }
     | undefined;
   const nowcasting = weatherRaw.raw?.nowcasting;
   const learnedPeakWindow = weatherRaw.raw?.learnedPeakWindow;
   const biasAdjusted = await computeBiasAdjustedFusedTarget(sourceDailyMax ?? null);
-  const fusedTargetMax = biasAdjusted?.fused ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
+  const fusedContinuous = biasAdjusted?.fused ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
+  const fusedAnchor = sourceDailyMax?.fusedAnchor ?? Math.round(fusedContinuous);
   const isTargetDateToday = shanghaiDateEquals(market.targetDate, new Date());
 
   const modelCurrentTemp = isTargetDateToday
     ? (nowcasting?.currentTemp ?? weather.temperature2m)
     : weather.temperature2m;
-  const modelMaxTemp = fusedTargetMax;
+  // Decision should align with integer settlement bins for "highest temperature" markets.
+  const modelMaxTemp = fusedAnchor;
   const modelTempRise1h = isTargetDateToday
     ? (nowcasting?.tempRise1h ?? weather.tempRise1h ?? 0)
     : (weather.tempRise1h ?? 0);
@@ -508,7 +517,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         weatherMaturityScore: nowcasting?.weatherMaturityScore ?? null,
         scenarioTag: nowcasting?.scenarioTag ?? null,
         learnedPeakWindow: learnedPeakWindow ?? null,
-        calibratedFusedTemp: fusedTargetMax,
+        calibratedFusedTemp: fusedAnchor,
+        fusedContinuous,
+        fusedAnchor,
         sourceCalibration: biasAdjusted?.breakdown ?? [],
         dailyDecision: {
           mode: 'realtime',

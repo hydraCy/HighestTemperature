@@ -55,27 +55,38 @@ export async function fetchShanghaiMarket(): Promise<{ data: ShanghaiMarketPaylo
   const tomorrow = addDaysInShanghai(today, 1);
   const todayKey = toDateKeyShanghai(today);
   const tomorrowKey = toDateKeyShanghai(tomorrow);
+  const rolloverWindowMinutes = Number(process.env.MARKET_ROLLOVER_WINDOW_MINUTES ?? '240');
+  const now = new Date();
   const autoTodaySlugs = buildAutoEventSlugs(today);
   const autoTomorrowSlugs = buildAutoEventSlugs(tomorrow);
   const preferredSlugs = [...new Set([...(manualEventSlug ? [manualEventSlug] : []), ...autoTodaySlugs, ...autoTomorrowSlugs])];
   const urls = [
     ...preferredSlugs.map((slug) => `${base}/events/slug/${encodeURIComponent(slug)}`),
     `${base}/events?limit=400&active=true`,
-    `${base}/markets?limit=1200&active=true`
+    `${base}/markets?limit=1200&active=true`,
+    `${base}/events?limit=400`,
+    `${base}/markets?limit=1200`
   ];
 
   try {
     const errors: string[] = [];
     let best: { payload: ShanghaiMarketPayload; score: number } | null = null;
+    let manualMatch: ShanghaiMarketPayload | null = null;
     for (const url of urls) {
       try {
         const json = await fetchJsonWithCurlFallback(url, timeoutMs);
         const candidates = buildPayloadCandidatesFromApi(json, { fallbackSlug: manualEventSlug ?? autoTodaySlugs[0] ?? null });
+        if (manualEventSlug) {
+          const exact = candidates.find((c) => c.marketSlug === manualEventSlug);
+          if (exact) manualMatch = exact;
+        }
         if (candidates.length) {
           const candidate = pickByTradingDayPriority(candidates, {
             todayKey,
             tomorrowKey,
-            manualEventSlug
+            manualEventSlug,
+            now,
+            rolloverWindowMinutes
           });
           const score = scorePayload(candidate, { todayKey, tomorrowKey, manualEventSlug });
           if (!best || score > best.score) best = { payload: candidate, score };
@@ -85,6 +96,10 @@ export async function fetchShanghaiMarket(): Promise<{ data: ShanghaiMarketPaylo
       } catch (err) {
         errors.push(`${url} -> ${formatFetchError(err)}`);
       }
+    }
+
+    if (manualMatch) {
+      return { source: 'api', data: manualMatch };
     }
 
     if (!best) {
@@ -117,9 +132,13 @@ function buildPayloadCandidatesFromApi(
     .map(toBinaryBin)
     .filter((x): x is NonNullable<ReturnType<typeof toBinaryBin>> => Boolean(x))
     .filter((x) => isShanghaiTempText(`${x.question} ${x.slug}`));
-  if (binaries.length) {
+  const scopedBinaries =
+    opts.fallbackSlug && opts.fallbackSlug.startsWith('highest-temperature-in-shanghai-on-')
+      ? binaries.filter((x) => x.slug.includes(opts.fallbackSlug ?? ''))
+      : binaries;
+  if (scopedBinaries.length) {
     const bins = sortAndIndex(
-      binaries.map((x) => ({
+      scopedBinaries.map((x) => ({
         label: x.label,
         price: x.price,
         noPrice: x.noPrice,
@@ -129,7 +148,7 @@ function buildPayloadCandidatesFromApi(
       }))
     );
     const todayKey = toDateKeyShanghai(todayInShanghai());
-    const bestDate = pickBestDate(binaries.map((x) => x.endDate).filter((x): x is Date => x instanceof Date), todayKey);
+    const bestDate = pickBestDate(scopedBinaries.map((x) => x.endDate).filter((x): x is Date => x instanceof Date), todayKey);
     candidates.push({
       eventId: `event_${opts.fallbackSlug ?? 'shanghai-auto'}`,
       marketSlug: opts.fallbackSlug ?? `highest-temperature-in-shanghai-on-${todayKey}`,
@@ -378,14 +397,35 @@ function addDaysInShanghai(date: Date, days: number) {
 
 function pickByTradingDayPriority(
   candidates: ShanghaiMarketPayload[],
-  opts: { todayKey: string; tomorrowKey: string; manualEventSlug: string | null }
+  opts: {
+    todayKey: string;
+    tomorrowKey: string;
+    manualEventSlug: string | null;
+    now: Date;
+    rolloverWindowMinutes: number;
+  }
 ) {
+  const isTodayInSettlementWindow = (c: ShanghaiMarketPayload) => {
+    const key = toDateKeyShanghai(c.targetDate);
+    if (key !== opts.todayKey) return false;
+    const minutesToSettlement = Math.floor((c.targetDate.getTime() - opts.now.getTime()) / 60000);
+    return c.isClosed || !c.isActive || minutesToSettlement <= opts.rolloverWindowMinutes;
+  };
+  const hasTodayInSettlementWindow = candidates.some((c) => isTodayInSettlementWindow(c));
+
   if (opts.manualEventSlug) {
     const manual = candidates.find((c) => c.marketSlug === opts.manualEventSlug);
-    if (manual) return manual;
+    if (manual && !isTodayInSettlementWindow(manual)) return manual;
   }
 
-  const todayTradable = candidates.filter((c) => toDateKeyShanghai(c.targetDate) === opts.todayKey && c.isActive && !c.isClosed && c.bins.length > 0);
+  const todayTradable = candidates.filter(
+    (c) =>
+      toDateKeyShanghai(c.targetDate) === opts.todayKey &&
+      c.isActive &&
+      !c.isClosed &&
+      !isTodayInSettlementWindow(c) &&
+      c.bins.length > 0
+  );
   if (todayTradable.length) {
     return [...todayTradable].sort((a, b) => scorePayload(b, opts) - scorePayload(a, opts))[0];
   }
@@ -393,6 +433,13 @@ function pickByTradingDayPriority(
   const tomorrowTradable = candidates.filter((c) => toDateKeyShanghai(c.targetDate) === opts.tomorrowKey && c.isActive && !c.isClosed && c.bins.length > 0);
   if (tomorrowTradable.length) {
     return [...tomorrowTradable].sort((a, b) => scorePayload(b, opts) - scorePayload(a, opts))[0];
+  }
+
+  if (hasTodayInSettlementWindow) {
+    const tomorrowAny = candidates.filter((c) => toDateKeyShanghai(c.targetDate) === opts.tomorrowKey && c.bins.length > 0);
+    if (tomorrowAny.length) {
+      return [...tomorrowAny].sort((a, b) => scorePayload(b, opts) - scorePayload(a, opts))[0];
+    }
   }
 
   return [...candidates].sort((a, b) => scorePayload(b, opts) - scorePayload(a, opts))[0];

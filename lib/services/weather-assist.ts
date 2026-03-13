@@ -6,6 +6,9 @@ import {
   fetchWundergroundPeakWindow30d,
   type WundergroundNowcasting
 } from '@/lib/services/wunderground-nowcasting';
+import { runFusionEngine } from '@/src/lib/fusion-engine/fuse';
+import type { HistoricalCalibration, WeatherSourceInput } from '@/src/lib/fusion-engine/types';
+import { prisma } from '@/lib/db';
 
 const RESOLUTION_STATION = {
   stationName: 'Shanghai Pudong International Airport Station',
@@ -448,7 +451,7 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
   const missingSources: WeatherSourceCode[] = strictRequiredSources.filter((s) => !availability[s]);
   const strictReady = missingSources.length === 0;
 
-  const data = buildAssistFromTargetDay(openRows, wttrRows, metNoRows, targetKey, {
+  const data = await buildAssistFromTargetDay(openRows, wttrRows, metNoRows, targetKey, {
     targetDate: targetKey,
     mode: 'next_day_forecast',
     resolutionSource: 'Wunderground(ZSPD)',
@@ -534,7 +537,7 @@ function parseQWeatherDailyMax(payload: z.infer<typeof qWeatherSchema>, targetDa
   return null;
 }
 
-function buildAssistFromTargetDay(
+async function buildAssistFromTargetDay(
   openRows: HourlyPoint[],
   wttrRows: HourlyPoint[],
   metNoRows: HourlyPoint[],
@@ -545,7 +548,7 @@ function buildAssistFromTargetDay(
   wuNowcasting: WundergroundNowcasting | null,
   wuDailyMax: number | null,
   wuPeakWindow: { startHour: number; endHour: number; medianHour: number; sampleDays: number; method: string } | null
-): WeatherAssist {
+): Promise<WeatherAssist> {
   const openTarget = filterByDateKey(openRows, targetDateKey);
   const wttrTarget = filterByDateKey(wttrRows, targetDateKey);
   const metTarget = filterByDateKey(metNoRows, targetDateKey);
@@ -573,15 +576,52 @@ function buildAssistFromTargetDay(
   const prev2 = mergedRows[Math.max(0, peakIdx - 2)] ?? prev1;
   const prev3 = mergedRows[Math.max(0, peakIdx - 3)] ?? prev2;
 
+  const precipitationProxy = Math.max(peak.precip, (peak.rainProb ?? 0) / 100);
+  const nowcasting = buildNowcastingContext(openRows, wttrRows, metNoRows, targetDateKey, wuNowcasting);
   const rowDailyMaxRaw = mergedRows.length ? Math.max(...mergedRows.map((r) => r.temp)) : (wuDailyMax ?? weatherApiDailyMax ?? qWeatherDailyMax ?? peak.temp);
   const wuDailyMaxInt = toResolutionInt(wuDailyMax);
-  const openDailyMax = toResolutionInt(openTarget.length ? Math.max(...openTarget.map((r) => r.temp)) : null);
-  const wttrDailyMax = toResolutionInt(wttrTarget.length ? Math.max(...wttrTarget.map((r) => r.temp)) : null);
-  const metNoDailyMax = toResolutionInt(metTarget.length ? Math.max(...metTarget.map((r) => r.temp)) : null);
+  const openDailyMaxRaw = openTarget.length ? Math.max(...openTarget.map((r) => r.temp)) : null;
+  const wttrDailyMaxRaw = wttrTarget.length ? Math.max(...wttrTarget.map((r) => r.temp)) : null;
+  const metNoDailyMaxRaw = metTarget.length ? Math.max(...metTarget.map((r) => r.temp)) : null;
+  const openDailyMax = toResolutionInt(openDailyMaxRaw);
+  const wttrDailyMax = toResolutionInt(wttrDailyMaxRaw);
+  const metNoDailyMax = toResolutionInt(metNoDailyMaxRaw);
   const weatherApiDailyMaxInt = toResolutionInt(weatherApiDailyMax);
   const qWeatherDailyMaxInt = toResolutionInt(qWeatherDailyMax);
   const rowDailyMax = toResolutionInt(rowDailyMaxRaw) ?? 0;
-  const fusedDailyMax = mergeMedian([
+
+  const fusionSources: WeatherSourceInput[] = [
+    wuDailyMax != null ? { sourceName: 'wunderground_daily', rawPredictedMaxTemp: wuDailyMax, stationType: 'exact_station' } : null,
+    openDailyMaxRaw != null ? { sourceName: 'open_meteo', rawPredictedMaxTemp: openDailyMaxRaw, stationType: 'grid_point' } : null,
+    wttrDailyMaxRaw != null ? { sourceName: 'wttr', rawPredictedMaxTemp: wttrDailyMaxRaw, stationType: 'city_level' } : null,
+    metNoDailyMaxRaw != null ? { sourceName: 'met_no', rawPredictedMaxTemp: metNoDailyMaxRaw, stationType: 'grid_point' } : null,
+    weatherApiDailyMax != null ? { sourceName: 'weatherapi', rawPredictedMaxTemp: weatherApiDailyMax, stationType: 'city_level' } : null,
+    qWeatherDailyMax != null ? { sourceName: 'qweather', rawPredictedMaxTemp: qWeatherDailyMax, stationType: 'city_level' } : null
+  ].filter((x): x is WeatherSourceInput => Boolean(x));
+  const calibrations = await loadFusionCalibrations();
+  const fusionOutput =
+    fusionSources.length >= 2
+      ? runFusionEngine({
+          sources: fusionSources,
+          calibrations,
+          resolutionContext: {
+            cityName: 'Shanghai',
+            resolutionStationName: RESOLUTION_STATION.stationName,
+            resolutionSourceName: 'Wunderground',
+            precision: 'integer_celsius'
+          },
+          scenarioContext: {
+            currentTemp: nowcasting.currentTemp,
+            tempRise1h: nowcasting.tempRise1h,
+            tempRise2h: nowcasting.tempRise2h,
+            cloudCover: nowcasting.cloudCover,
+            precipitationProb: nowcasting.precipitationProb,
+            windSpeed: nowcasting.windSpeed,
+            nowHourLocal: hourOf(new Date())
+          }
+        })
+      : null;
+  const medianFallback = mergeMedian([
     wuDailyMaxInt ?? undefined,
     openDailyMax ?? undefined,
     wttrDailyMax ?? undefined,
@@ -589,13 +629,13 @@ function buildAssistFromTargetDay(
     weatherApiDailyMaxInt ?? undefined,
     qWeatherDailyMaxInt ?? undefined
   ]);
-  const dailyMax = fusedDailyMax > 0 ? Math.round(fusedDailyMax) : rowDailyMax;
+  const fusedRaw = fusionOutput?.fusedTemp ?? (medianFallback > 0 ? medianFallback : rowDailyMax);
+  const dailyMaxContinuous = Number(fusedRaw.toFixed(2));
+  const dailyMaxAnchor = maxAwareSettlementAnchor(dailyMaxContinuous);
+  const dailyMax = dailyMaxAnchor;
   const sourceSpread = spreadOf([wuDailyMaxInt, openDailyMax, wttrDailyMax, metNoDailyMax, weatherApiDailyMaxInt, qWeatherDailyMaxInt]);
   const confidence =
     sourceSpread == null ? 'low' : sourceSpread <= 1 ? 'high' : sourceSpread <= 2.5 ? 'medium' : 'low';
-
-  const precipitationProxy = Math.max(peak.precip, (peak.rainProb ?? 0) / 100);
-  const nowcasting = buildNowcastingContext(openRows, wttrRows, metNoRows, targetDateKey, wuNowcasting);
 
   return {
     observedAt: peak.time,
@@ -617,6 +657,8 @@ function buildAssistFromTargetDay(
       learnedPeakWindow: wuPeakWindow,
       peakHourLocal: hourOf(peak.time),
       dailyMaxForecast: dailyMax,
+      dailyMaxForecastContinuous: dailyMaxContinuous,
+      dailyMaxForecastAnchor: dailyMaxAnchor,
       dailyMinForecast: mergedRows.length ? Math.min(...mergedRows.map((r) => r.temp)) : null,
       sourceDailyMax: {
         wundergroundDaily: wuDailyMaxInt,
@@ -627,21 +669,61 @@ function buildAssistFromTargetDay(
         qWeather: qWeatherDailyMaxInt,
         cmaChina: qWeatherDailyMaxInt,
         fused: dailyMax,
+        fusedContinuous: dailyMaxContinuous,
+        fusedAnchor: dailyMaxAnchor,
         spread: sourceSpread
       },
       forecastExplain: {
-        method: 'median_of_sources',
+        method: fusionOutput ? 'weighted_fusion' : 'median_of_sources',
         confidence,
-        zh: `次日最高温由多源日高温预测融合得到：Wunderground ${wuDailyMaxInt ?? '-'}°C / Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C，取中位数得到 ${dailyMax}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。`,
-        en: `Next-day max temperature is fused from multiple source daily highs: Wunderground ${wuDailyMaxInt ?? '-'}°C / Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C. Median result is ${dailyMax}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}.`
+        weightBreakdown: fusionOutput
+          ? fusionOutput.sourceBreakdown.map((s) => ({
+              source: s.sourceName,
+              raw: Number(s.rawPredictedMaxTemp.toFixed(2)),
+              adjusted: Number(s.adjustedPredictedMaxTemp.toFixed(2)),
+              weight: Number((s.finalWeight * 100).toFixed(2)),
+              matchScore: s.matchScore,
+              accuracyScore: s.accuracyScore,
+              scenarioScore: s.scenarioScore
+            }))
+          : [],
+        zh: fusionOutput
+          ? `次日最高温采用加权融合：Wunderground ${wuDailyMaxInt ?? '-'}°C / Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。${fusionOutput.explanation}`
+          : `次日最高温由多源日高温预测融合得到：Wunderground ${wuDailyMaxInt ?? '-'}°C / Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。`,
+        en: fusionOutput
+          ? `Next-day max temperature uses weighted fusion: Wunderground ${wuDailyMaxInt ?? '-'}°C / Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C, fused continuous value ${dailyMaxContinuous}°C and settlement anchor ${dailyMaxAnchor}°C. Cross-source spread ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence ${confidence}. ${fusionOutput.explanation}`
+          : `Next-day max temperature is fused from multiple source daily highs: Wunderground ${wuDailyMaxInt ?? '-'}°C / Open‑Meteo ${openDailyMax ?? '-'}°C / wttr ${wttrDailyMax ?? '-'}°C / met.no ${metNoDailyMax ?? '-'}°C / WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C / QWeather ${qWeatherDailyMaxInt ?? '-'}°C. Continuous fused value is ${dailyMaxContinuous}°C with settlement anchor ${dailyMaxAnchor}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}.`
       }
     }
   };
 }
 
+async function loadFusionCalibrations(): Promise<HistoricalCalibration[]> {
+  const stats = await prisma.forecastSourceBias.groupBy({
+    by: ['sourceCode'],
+    _avg: { bias: true, absError: true },
+    _count: { sourceCode: true }
+  });
+  return stats.map((s) => ({
+    sourceName: s.sourceCode,
+    sampleSize: s._count.sourceCode ?? 0,
+    bias: s._avg.bias ?? 0,
+    mae: s._avg.absError ?? 1.5,
+    exactHitRate: 0,
+    within1CHitRate: 0
+  }));
+}
+
 function toResolutionInt(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
   return Math.round(value);
+}
+
+function maxAwareSettlementAnchor(value: number) {
+  const threshold = Number(process.env.MAX_TEMP_UPSHIFT_THRESHOLD ?? '0.35');
+  const floor = Math.floor(value);
+  const frac = value - floor;
+  return frac >= threshold ? floor + 1 : floor;
 }
 
 function toOpenMeteoRows(hourly: z.infer<typeof openMeteoSchema>['hourly']): HourlyPoint[] {

@@ -10,6 +10,9 @@ import { LiveMarketPoller } from '@/components/market/live-market-poller';
 import { getDashboardData } from '@/lib/services/query';
 import { fromJsonString } from '@/lib/utils/json';
 import { riskLabel } from '@/lib/i18n/risk-labels';
+import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
+import { calculatePositionSize } from '@/src/lib/trading-engine/positionSizer';
+import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
 
 type PageSearchParams = Promise<{ lang?: string | string[] }>;
 
@@ -28,6 +31,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherErrors: 'weather source errors',
           strictBlock: 'Strict mode: at least one weather source is missing. Forecast and recommendation are blocked.',
           strictMissing: 'Missing sources',
+          weatherDateMismatch: 'Weather date mismatch',
           nonDirectResolution: 'Wunderground direct resolution source is not connected yet; proxy weather estimate only.',
           settledTitle: 'Market is in settlement window or closed',
           settledForcePass: 'System output is forced to PASS and position is 0.',
@@ -64,12 +68,21 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           marketSlug: 'Market Slug',
           marketTitle: 'Title',
           targetDate: 'Target Date',
+          weatherTargetDate: 'Weather Target Date',
+          weatherObservedAt: 'Weather Observed At',
           volume: 'Volume',
           sourceMarketLink: 'Polymarket Link',
           openPolymarket: 'Open Polymarket',
           modelPanel: 'Model Board',
           dayMaxForecast: 'Target Day Max Temp Forecast',
+          dayMaxContinuous: 'Fused Continuous',
+          dayMaxAnchor: 'Settlement Anchor',
           sourceBreakdown: 'Source Breakdown',
+          weightBreakdown: 'Fusion Weight Breakdown',
+          sourceCol: 'Source',
+          rawTempCol: 'Raw',
+          adjTempCol: 'Adjusted',
+          weightCol: 'Weight',
           weatherApi: 'WeatherAPI',
           qweather: 'QWeather',
           freeSources: 'Free Sources',
@@ -105,6 +118,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           confidence: 'Confidence',
           forecastConfidence: { high: 'High', medium: 'Medium', low: 'Low' },
           opportunityRanking: 'Top Profit Opportunities (Net EV)',
+          actionableTop3: 'Actionable Priority (Top 3)',
+          lockHintTitle: 'Lock-Temperature Gate',
+          lockLikely: 'Likely locked near settlement; avoid contrarian bets.',
+          lockOpen: 'Not locked yet; keep monitoring intraday updates.',
+          lockReason: 'Reason',
           rank: 'Rank',
           side: 'Side',
           modelProb: 'Model Prob',
@@ -130,12 +148,20 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherScore: 'Weather Stability Score',
           dataQualityScore: 'Data Quality Score',
           noDecision: 'No decision yet. Please refresh.',
+          bankrollCalc: 'Bankroll Calculator',
+          bankrollBase: 'Base Capital',
+          bankrollStake: 'Recommended Stake',
+          bankrollProb: 'Side Prob',
+          bankrollPrice: 'Entry Price',
           sourceBiasTitle: 'Source Bias vs ZSPD (Historical)',
           avgBias: 'Avg Bias',
           mae: 'MAE',
           samples: 'N',
           detail: 'View Details',
           allBins: 'All Bins',
+          focusedBins: 'Focused Tradable Bins (Center ±2)',
+          tailBins: 'Tail Bins (low-value, collapsed)',
+          centerTemp: 'Center Temp',
           bin: 'Bin',
           ask: 'Executable Ask',
           noPrice: 'No Price',
@@ -161,6 +187,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherErrors: '天气源异常',
           strictBlock: '严格模式：存在缺失天气源，预测与交易建议已禁用。',
           strictMissing: '缺失数据源',
+          weatherDateMismatch: '天气日期不匹配',
           nonDirectResolution: '当前尚未直接接入 Wunderground 结算源，只能用代理天气源估算。',
           settledTitle: '当前市场已到结算窗口或已关闭',
           settledForcePass: '系统已强制输出 PASS，仓位为 0。',
@@ -197,12 +224,21 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           marketSlug: '市场标识',
           marketTitle: '标题',
           targetDate: '目标日期',
+          weatherTargetDate: '天气数据目标日期',
+          weatherObservedAt: '天气观测时间',
           volume: '成交量',
           sourceMarketLink: '原站盘口',
           openPolymarket: '打开 Polymarket',
           modelPanel: '模型面板',
           dayMaxForecast: '目标日全天最高温预测',
+          dayMaxContinuous: '连续融合值',
+          dayMaxAnchor: '结算锚点',
           sourceBreakdown: '来源拆解',
+          weightBreakdown: '融合权重拆解',
+          sourceCol: '来源',
+          rawTempCol: '原始',
+          adjTempCol: '校准后',
+          weightCol: '权重',
           weatherApi: 'WeatherAPI',
           qweather: 'QWeather',
           freeSources: '免费源',
@@ -238,6 +274,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           confidence: '置信度',
           forecastConfidence: { high: '高', medium: '中', low: '低' },
           opportunityRanking: '最可能赚钱机会（按净EV）',
+          actionableTop3: '可执行优先级（Top 3）',
+          lockHintTitle: '锁温门槛提示',
+          lockLikely: '接近结算且温度大概率锁定，避免逆向下注。',
+          lockOpen: '尚未锁温，继续跟踪盘面与短临变化。',
+          lockReason: '依据',
           rank: '排名',
           side: '方向',
           modelProb: '模型概率',
@@ -263,12 +304,20 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherScore: '天气稳定分',
           dataQualityScore: '数据质量分',
           noDecision: '暂无决策，请刷新后查看。',
+          bankrollCalc: '资金仓位计算器',
+          bankrollBase: '基准本金',
+          bankrollStake: '建议下注金额',
+          bankrollProb: '方向胜率',
+          bankrollPrice: '入场价格',
           sourceBiasTitle: '数据源相对ZSPD历史偏差',
           avgBias: '平均偏差',
           mae: 'MAE',
           samples: '样本数',
           detail: '查看详情',
           allBins: '全部盘口（Bin）',
+          focusedBins: '聚焦可交易盘口（中心温度±2）',
+          tailBins: '尾部盘口（低价值，折叠）',
+          centerTemp: '中心温度',
           bin: '盘口',
           ask: '可成交价(ask)',
           noPrice: '反向价格(No)',
@@ -292,7 +341,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const weatherErrors = weatherRaw.raw?.errors ?? [];
   const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
   const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
-  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { wundergroundDaily?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
+  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { wundergroundDaily?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
   const apiStatusMap = (weatherRaw.raw as {
     apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean }>;
   } | undefined)?.apiStatus ?? {};
@@ -319,9 +368,19 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       }>;
     };
   } | undefined)?.nowcasting;
-  const forecastExplain = (weatherRaw.raw as { forecastExplain?: { zh?: string; en?: string; method?: string; confidence?: 'high' | 'medium' | 'low' } } | undefined)?.forecastExplain;
+  const forecastExplain = (weatherRaw.raw as {
+    forecastExplain?: {
+      zh?: string;
+      en?: string;
+      method?: string;
+      confidence?: 'high' | 'medium' | 'low';
+      weightBreakdown?: Array<{ source: string; raw: number; adjusted: number; weight: number }>;
+    };
+  } | undefined)?.forecastExplain;
   const learnedPeakWindow = (weatherRaw.raw as { learnedPeakWindow?: { startHour?: number; endHour?: number; sampleDays?: number } } | undefined)?.learnedPeakWindow;
   const resolutionSourceStatus = (weatherRaw.raw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
+  const weatherTargetDate = (weatherRaw.raw as { targetDate?: string } | undefined)?.targetDate;
+  const weatherObservedAt = (weatherRaw.raw as { nowcasting?: { observedAt?: string } } | undefined)?.nowcasting?.observedAt;
   const decisionMeta = (data?.latestDecision?.reasonMeta ?? {}) as {
     calibratedFusedTemp?: number;
     sourceCalibration?: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }>;
@@ -358,6 +417,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     const noPrice = b.noMarketPrice ?? (1 - b.marketPrice);
     const edgeYes = modelYes - b.marketPrice;
     const edgeNo = modelNo - noPrice;
+    const bestEdge = Math.max(edgeYes, edgeNo);
     return {
       label: b.outcomeLabel,
       marketPrice: b.marketPrice,
@@ -368,13 +428,29 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       modelNoProbability: modelNo,
       edgeYes,
       edgeNo,
+      bestEdge,
       bestSide: edgeYes >= edgeNo ? 'YES' : 'NO',
       edge: out?.edge ?? 0
     };
   });
-  const topProfit = [...allBins].sort((a, b) => b.edge - a.edge)[0];
+  const centerTempRaw = decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? null;
+  const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw) ? Math.round(centerTempRaw) : null;
+  const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
+  const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
+  const isFocusedBin = (label: string) => {
+    if (focusMin == null || focusMax == null) return true;
+    const p = parseTemperatureBin(label);
+    if (p.min == null && p.max == null) return true;
+    const lo = p.min ?? Number.NEGATIVE_INFINITY;
+    const hi = p.max ?? Number.POSITIVE_INFINITY;
+    return hi > focusMin && lo < focusMax;
+  };
+  const focusedBins = allBins.filter((b) => isFocusedBin(b.label));
+  const tailBins = allBins.filter((b) => !isFocusedBin(b.label));
+  const topProfit = [...allBins].sort((a, b) => b.bestEdge - a.bestEdge)[0];
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
-  const opportunityRows = [...allBins]
+  const rankingBaseBins = focusedBins.length > 0 ? focusedBins : allBins;
+  const opportunityRows = [...rankingBaseBins]
     .map((b) => {
       const side = b.edgeYes >= b.edgeNo ? 'YES' : 'NO';
       const modelProb = side === 'YES' ? b.modelProbability : b.modelNoProbability;
@@ -385,11 +461,53 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     })
     .sort((a, b) => b.netEdge - a.netEdge)
     .slice(0, 8);
+  const actionableRows = opportunityRows
+    .filter((r) => r.netEdge > 0 && r.marketPx >= 0.02 && r.marketPx <= 0.98)
+    .slice(0, 3);
   const biasStats = data?.biasStats ?? [];
+  const recBin = data?.latestDecision?.recommendedBin;
+  const recSide = data?.latestDecision?.recommendedSide;
+  const recRow = allBins.find((b) => b.label === recBin);
+  const stakeBase = 1000;
+  const sideProb = recRow
+    ? (recSide === 'NO' ? recRow.modelNoProbability : recRow.modelProbability)
+    : 0;
+  const entryPrice = recRow
+    ? (recSide === 'NO' ? recRow.noMarketPrice : recRow.marketPrice)
+    : 1;
+  const riskModifier = calculateRiskModifier({
+    cloudCover: nowcasting?.cloudCover ?? 0,
+    precipitationProb: nowcasting?.precipitationProb ?? 0,
+    tempRise1h: nowcasting?.tempRise1h ?? 0
+  });
+  const bankrollStake = calculatePositionSize({
+    totalCapital: stakeBase,
+    maxSingleTradePercent: Number(process.env.MAX_SINGLE_TRADE_PERCENT ?? '0.1'),
+    edge: Math.max(0, data?.latestDecision?.edge ?? 0),
+    sideProbability: sideProb,
+    entryPrice,
+    riskModifier,
+    kellyFraction: Number(process.env.KELLY_FRACTION ?? '0.25'),
+    maxSingleRiskPercent: Number(process.env.MAX_SINGLE_RISK_PERCENT ?? '0.02'),
+    dailyRiskPercent: Number(process.env.DAILY_RISK_PERCENT ?? '0.05')
+  });
   const marketUpdatedAt = (data?.market.bins ?? [])
     .map((b) => b.updatedAt ? new Date(b.updatedAt).getTime() : 0)
     .reduce((acc, x) => Math.max(acc, x), 0);
   const marketUpdatedAtIso = marketUpdatedAt > 0 ? new Date(marketUpdatedAt).toISOString() : null;
+  const minutesToSettlement = data?.marketStatus?.minutesToSettlement ?? null;
+  const nearSettlement = typeof minutesToSettlement === 'number' && minutesToSettlement <= 180;
+  const futureCapped =
+    (nowcasting?.futureHours ?? []).slice(0, 3).length > 0 &&
+    (nowcasting?.futureHours ?? []).slice(0, 3).every((h) => h.temp <= (nowcasting?.todayMaxTemp ?? Number.POSITIVE_INFINITY) + 0.2);
+  const stalledRise = (nowcasting?.tempRise1h ?? 0) <= 0;
+  const lockLikely = Boolean(
+    data?.marketStatus?.isSettled ||
+      (nearSettlement && nowcasting?.todayMaxTemp != null && nowcasting?.currentTemp != null && futureCapped && stalledRise),
+  );
+  const lockReason = data?.marketStatus?.isSettled
+    ? `${t.settledTitle}`
+    : `near_settlement=${nearSettlement ? 'yes' : 'no'}, stalled_rise=${stalledRise ? 'yes' : 'no'}, future_not_break_max=${futureCapped ? 'yes' : 'no'}`;
 
   return (
     <SiteShell currentPath="/" lang={lang}>
@@ -414,6 +532,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : ''}
             {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
             {resolutionSourceStatus !== 'direct' ? ` ${t.nonDirectResolution}` : ''}
+            {weatherTargetDate && data?.market?.targetDate && weatherTargetDate !== format(data.market.targetDate, 'yyyy-MM-dd') ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${format(data.market.targetDate, 'yyyy-MM-dd')}` : ''}
           </CardContent>
         </Card>
       )}
@@ -445,6 +564,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Wunderground + Open-Meteo + wttr.in + met.no）</span></p>
           <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
           <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
+          <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
+          <p>{t.weatherObservedAt}: {weatherObservedAt ? format(new Date(weatherObservedAt), 'yyyy-MM-dd HH:mm') : '-'}</p>
           <p className="md:col-span-2">{t.assistNote}</p>
         </CardContent>
       </Card>
@@ -472,7 +593,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           </div>
           <div className="rounded border border-border/60 p-2">
             <p className="mb-1 text-xs font-medium">{t.future1to3h}</p>
-            <div className="grid gap-2 md:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
               {(nowcasting?.futureHours ?? []).slice(0, 3).map((f) => (
                 <div key={f.hourOffset} className="rounded border border-border/40 p-2 text-xs">
                   <p>+{f.hourOffset}h</p>
@@ -556,7 +677,15 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="grid gap-2 md:grid-cols-3">
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.dayMaxForecast}</p>
-                <p className="text-lg font-semibold">{strictReady && (decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused) != null ? `${Math.round(decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fused ?? 0)}°C` : '-'}</p>
+                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.fusedAnchor != null ? `${sourceDailyMax.fusedAnchor.toFixed(0)}°C` : '-'}</p>
+              </div>
+              <div className="rounded border border-border/60 bg-card/40 p-2">
+                <p className="text-[11px] text-muted-foreground">{t.dayMaxContinuous}</p>
+                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.fusedContinuous != null ? `${sourceDailyMax.fusedContinuous.toFixed(1)}°C` : '-'}</p>
+              </div>
+              <div className="rounded border border-border/60 bg-card/40 p-2">
+                <p className="text-[11px] text-muted-foreground">{t.todayObservedMax}</p>
+                <p className="text-lg font-semibold">{nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.sourceSpread}</p>
@@ -585,6 +714,37 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
               <p>
                 <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${Math.round(sourceDailyMax.weatherApi)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${Math.round((sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) ?? 0)}°C` : '-'}
               </p>
+            </div>
+
+            <div className="rounded border border-border/60 p-2 text-xs">
+              <p className="mb-2 font-medium">{t.weightBreakdown}</p>
+              {!strictReady || !(forecastExplain?.weightBreakdown?.length) ? (
+                <p className="text-muted-foreground">-</p>
+              ) : (
+                <table className="w-full">
+                  <thead className="text-muted-foreground">
+                    <tr>
+                      <th className="text-left">{t.sourceCol}</th>
+                      <th className="text-left">{t.rawTempCol}</th>
+                      <th className="text-left">{t.adjTempCol}</th>
+                      <th className="text-left">{t.weightCol}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forecastExplain.weightBreakdown
+                      .slice()
+                      .sort((a, b) => b.weight - a.weight)
+                      .map((w) => (
+                        <tr key={w.source} className="border-t border-border/40">
+                          <td>{w.source}</td>
+                          <td>{w.raw.toFixed(1)}°C</td>
+                          <td>{w.adjusted.toFixed(1)}°C</td>
+                          <td>{w.weight.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             <div className="grid gap-2 md:grid-cols-3">
@@ -655,8 +815,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <CardHeader><CardTitle>{t.decisionPanel}</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs">
-              {t.topEdge}：{topProfit?.label ?? '-'} / {(topProfit?.bestSide ?? '-')}（Edge {(topProfit?.edge ?? 0).toFixed(3)}）
+              {t.topEdge}：{topProfit?.label ?? '-'} / {(topProfit?.bestSide ?? '-')}（Edge {(topProfit?.bestEdge ?? 0).toFixed(3)}）
             </p>
+            <div className={`rounded border p-2 text-xs ${lockLikely ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
+              <p className="font-medium">{t.lockHintTitle}</p>
+              <p>{lockLikely ? t.lockLikely : t.lockOpen}</p>
+              <p className="text-muted-foreground">{t.lockReason}: {lockReason}</p>
+            </div>
             <div className="flex items-center gap-2">
               <span>{t.decision}:</span>
               <Badge variant={data?.latestDecision?.decision === 'BUY' ? 'success' : data?.latestDecision?.decision === 'WATCH' ? 'warning' : 'secondary'}>
@@ -667,10 +832,30 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <p>{t.recSide}: {data?.latestDecision?.recommendedSide ?? '-'}</p>
             <p>{t.edge}: {data?.latestDecision?.edge?.toFixed(3) ?? '-'}</p>
             <p>{t.tradeScore}: {data?.latestDecision?.tradeScore?.toFixed(2) ?? '-'}</p>
-            <p>{t.position}: {data?.latestDecision?.positionSize?.toFixed(2) ?? '0.00'}</p>
             <p>{t.timingScore}: {data?.latestDecision?.timingScore?.toFixed(0) ?? '-'}</p>
             <p>{t.weatherScore}: {data?.latestDecision?.weatherScore?.toFixed(0) ?? '-'}</p>
             <p>{t.dataQualityScore}: {data?.latestDecision?.dataQualityScore?.toFixed(0) ?? '-'}</p>
+            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
+              <p className="font-medium">{t.bankrollCalc}</p>
+              <p>{t.bankrollBase}: {stakeBase}u</p>
+              <p>{t.bankrollProb}: {(sideProb * 100).toFixed(1)}%</p>
+              <p>{t.bankrollPrice}: {(entryPrice * 100).toFixed(1)}%</p>
+              <p className="text-emerald-300">{t.bankrollStake}: {bankrollStake.toFixed(2)}u</p>
+            </div>
+            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
+              <p className="font-medium">{t.actionableTop3}</p>
+              {strictReady && actionableRows.length > 0 ? actionableRows.map((r, idx) => (
+                <p key={`${r.label}-${r.side}`} className="grid grid-cols-12 gap-2">
+                  <span className="col-span-1">{idx + 1}</span>
+                  <span className="col-span-3">{r.label}</span>
+                  <span className="col-span-2">{r.side}</span>
+                  <span className="col-span-3">{(r.marketPx * 100).toFixed(1)}%</span>
+                  <span className="col-span-3 text-emerald-400">{r.netEdge.toFixed(3)}</span>
+                </p>
+              )) : (
+                <p className="text-muted-foreground">-</p>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1">
               {(data?.latestDecision?.riskFlags ?? []).map((r) => (
                 <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{riskLabel(r, lang)}</span>
@@ -683,7 +868,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       </div>
 
       <Card>
-        <CardHeader><CardTitle>{t.allBins}</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>{t.focusedBins}</CardTitle>
+          <p className="text-xs text-muted-foreground">{t.centerTemp}: {centerTemp != null ? `${centerTemp}°C` : '-'}</p>
+        </CardHeader>
         <CardContent className="overflow-auto">
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground">
@@ -701,7 +889,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
               </tr>
             </thead>
             <tbody>
-              {allBins.map((o) => (
+              {focusedBins.map((o) => (
                 <tr key={o.label} className="border-t border-border/60">
                   <td>{o.label}</td>
                   <td>{(o.marketPrice * 100).toFixed(1)}%</td>
@@ -715,6 +903,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
                   <td>{o.bestSide}</td>
                 </tr>
               ))}
+              {tailBins.length > 0 && (
+                <tr className="border-t border-border/60">
+                  <td colSpan={10} className="py-2 text-xs text-muted-foreground">
+                    {t.tailBins}: {tailBins.map((b) => b.label).join(', ')}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </CardContent>

@@ -10,6 +10,7 @@ import { NoteInput } from '@/components/market/note-input';
 import { fromJsonString } from '@/lib/utils/json';
 import { TempTrendChart, BinEdgeChart } from '@/components/charts/market-charts';
 import { riskLabel } from '@/lib/i18n/risk-labels';
+import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
 
 type DetailSearchParams = Promise<{ lang?: string | string[] }>;
 
@@ -32,6 +33,7 @@ export default async function MarketDetailPage({
           weatherErrors: 'weather source errors',
           strictBlock: 'Strict mode: incomplete weather sources, recommendation is forced to PASS.',
           strictMissing: 'Missing sources',
+          weatherDateMismatch: 'Weather date mismatch',
           refreshHint: 'Please refresh and verify API status.',
           settledWarn: 'This market is in settlement window or closed',
           settlementTime: 'Settlement Time',
@@ -44,8 +46,14 @@ export default async function MarketDetailPage({
           open: 'Open',
           precision: 'Precision Rule',
           finalizedRule: 'Finalization Rule',
+          weatherTargetDate: 'Weather Target Date',
+          weatherObservedAt: 'Weather Observed At',
           assistNote: 'Assist weather data is not final resolution basis. Final resolution follows Polymarket rules and designated source.',
           modelEdgeTable: 'Model / Edge Table',
+          focusedBins: 'Focused Tradable Bins (Center ±2)',
+          tailBins: 'Tail Bins (low-value, collapsed)',
+          centerTemp: 'Center Temp',
+          bin: 'Bin',
           ask: 'Executable Ask',
           noPrice: 'No Price',
           bid: 'Bid',
@@ -64,7 +72,7 @@ export default async function MarketDetailPage({
           recBin: 'Recommended Bin',
           recSide: 'Recommended Side',
           tradeScore: 'Trade Score',
-          position: 'Position Size',
+          edge: 'Edge',
           twd: 'Timing / Weather / DataQuality',
           tempTrend: 'Temperature Trend',
           binEdge: 'Bin Edge',
@@ -90,6 +98,7 @@ export default async function MarketDetailPage({
           weatherErrors: '天气源异常',
           strictBlock: '严格模式：天气源不完整，系统强制 PASS。',
           strictMissing: '缺失数据源',
+          weatherDateMismatch: '天气日期不匹配',
           refreshHint: '建议先刷新并确认 API 正常。',
           settledWarn: '该市场已到结算窗口或已关闭',
           settlementTime: '结算时间',
@@ -102,8 +111,14 @@ export default async function MarketDetailPage({
           open: '打开',
           precision: '精度规则',
           finalizedRule: '最终规则',
+          weatherTargetDate: '天气数据目标日期',
+          weatherObservedAt: '天气观测时间',
           assistNote: '辅助天气数据不是最终结算依据，结算以 Polymarket 规则与指定来源为准。',
           modelEdgeTable: '模型 / Edge 表',
+          focusedBins: '聚焦可交易盘口（中心温度±2）',
+          tailBins: '尾部盘口（低价值，折叠）',
+          centerTemp: '中心温度',
+          bin: '盘口',
           ask: '可成交价(ask)',
           noPrice: 'No价格',
           bid: 'bid',
@@ -122,7 +137,7 @@ export default async function MarketDetailPage({
           recBin: '推荐 Bin',
           recSide: '推荐方向',
           tradeScore: '交易评分',
-          position: '建议仓位',
+          edge: 'Edge',
           twd: '时点 / 天气 / 数据质量',
           tempTrend: '温度趋势',
           binEdge: '各 Bin Edge',
@@ -159,6 +174,7 @@ export default async function MarketDetailPage({
     const noPrice = b.noMarketPrice ?? (1 - b.marketPrice);
     const edgeYes = modelYes - b.marketPrice;
     const edgeNo = modelNo - noPrice;
+    const bestEdge = Math.max(edgeYes, edgeNo);
     return {
       label: b.outcomeLabel,
       marketPrice: b.marketPrice,
@@ -169,13 +185,32 @@ export default async function MarketDetailPage({
       modelNoProbability: modelNo,
       edgeYes,
       edgeNo,
+      bestEdge,
       bestSide: edgeYes >= edgeNo ? 'YES' : 'NO',
       edge: out?.edge ?? 0
     };
   });
-  const topProfit = [...allBins].sort((a, b) => b.edge - a.edge)[0];
+  const topProfit = [...allBins].sort((a, b) => b.bestEdge - a.bestEdge)[0];
+  const reasonMeta = fromJsonString<{ calibratedFusedTemp?: number }>(latestRun?.rawFeaturesJson, {});
+  const centerTemp = typeof reasonMeta.calibratedFusedTemp === 'number' && Number.isFinite(reasonMeta.calibratedFusedTemp)
+    ? Math.round(reasonMeta.calibratedFusedTemp)
+    : null;
+  const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
+  const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
+  const isFocusedBin = (label: string) => {
+    if (focusMin == null || focusMax == null) return true;
+    const p = parseTemperatureBin(label);
+    if (p.min == null && p.max == null) return true;
+    const lo = p.min ?? Number.NEGATIVE_INFINITY;
+    const hi = p.max ?? Number.POSITIVE_INFINITY;
+    return hi > focusMin && lo < focusMax;
+  };
+  const focusedBins = allBins.filter((b) => isFocusedBin(b.label));
+  const tailBins = allBins.filter((b) => !isFocusedBin(b.label));
   const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data.latestWeather?.rawJson, {});
   const weatherErrors = weatherRaw.raw?.errors ?? [];
+  const weatherTargetDate = (weatherRaw.raw as { targetDate?: string } | undefined)?.targetDate;
+  const weatherObservedAt = (weatherRaw.raw as { nowcasting?: { observedAt?: string } } | undefined)?.nowcasting?.observedAt;
   const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
   const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
 
@@ -200,6 +235,7 @@ export default async function MarketDetailPage({
             {t.warning}（{t.market}：{data.marketSource}，{t.weather}：{data.weatherSource}）。
             {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : t.refreshHint}
             {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
+            {weatherTargetDate && weatherTargetDate !== format(data.market.targetDate, 'yyyy-MM-dd') ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${format(data.market.targetDate, 'yyyy-MM-dd')}` : ''}
           </CardContent>
         </Card>
       )}
@@ -226,18 +262,23 @@ export default async function MarketDetailPage({
           </p>
           <p>{t.precision}: {data.market.resolutionMetadata?.precisionRule ?? '-'}</p>
           <p>{t.finalizedRule}: {data.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
+          <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
+          <p>{t.weatherObservedAt}: {weatherObservedAt ? format(new Date(weatherObservedAt), 'yyyy-MM-dd HH:mm') : '-'}</p>
           <p className="md:col-span-2 text-xs text-muted-foreground">{t.assistNote}</p>
         </CardContent>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>{t.modelEdgeTable}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>{t.focusedBins}</CardTitle>
+            <p className="text-xs text-muted-foreground">{t.centerTemp}: {centerTemp != null ? `${centerTemp}°C` : '-'}</p>
+          </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Bin</TableHead>
+                  <TableHead>{t.bin}</TableHead>
                   <TableHead>{t.ask}</TableHead>
                   <TableHead>{t.noPrice}</TableHead>
                   <TableHead>{t.bid}</TableHead>
@@ -250,7 +291,7 @@ export default async function MarketDetailPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {allBins.map((o) => (
+                {focusedBins.map((o) => (
                   <TableRow key={o.label}>
                     <TableCell>{o.label}</TableCell>
                     <TableCell>{(o.marketPrice * 100).toFixed(1)}%</TableCell>
@@ -264,6 +305,13 @@ export default async function MarketDetailPage({
                     <TableCell>{o.bestSide}</TableCell>
                   </TableRow>
                 ))}
+                {tailBins.length > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-xs text-muted-foreground">
+                      {t.tailBins}: {tailBins.map((b) => b.label).join(', ')}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -273,13 +321,13 @@ export default async function MarketDetailPage({
           <CardHeader><CardTitle>{t.decisionOutput}</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs">
-              {t.topEdge}：{topProfit?.label ?? '-'}（Edge {(topProfit?.edge ?? 0).toFixed(3)}）
+              {t.topEdge}：{topProfit?.label ?? '-'} / {(topProfit?.bestSide ?? '-')}（Edge {(topProfit?.bestEdge ?? 0).toFixed(3)}）
             </p>
             <p>{t.decision}: {decisionLabel(latestRun?.decision)}</p>
             <p>{t.recBin}: {latestRun?.bestBin ?? '-'}</p>
             <p>{t.recSide}: {fromJsonString<{ recommendedSide?: string }>(latestRun?.rawFeaturesJson, {}).recommendedSide ?? '-'}</p>
+            <p>{t.edge}: {latestRun?.edge != null ? latestRun.edge.toFixed(3) : '-'}</p>
             <p>{t.tradeScore}: {latestRun?.tradeScore?.toFixed(2) ?? '-'}</p>
-            <p>{t.position}: {latestRun?.recommendedPosition?.toFixed(2) ?? '-'}</p>
             <p>{t.twd}: {latestRun?.timingScore?.toFixed(0) ?? '-'} / {latestRun?.weatherScore?.toFixed(0) ?? '-'} / {latestRun?.dataQualityScore?.toFixed(0) ?? '-'}</p>
             <div className="flex flex-wrap gap-1">
               {fromJsonString<string[]>(latestRun?.riskFlagsJson, []).map((r) => (
