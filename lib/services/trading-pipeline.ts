@@ -50,6 +50,7 @@ function shanghaiDayRangeUtc(dateKey: string) {
 }
 
 async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
+  wundergroundDaily?: number | null;
   openMeteo?: number | null;
   wttr?: number | null;
   metNo?: number | null;
@@ -58,18 +59,24 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
   fused?: number | null;
 } | null) {
   if (!sourceDailyMax) return null;
+  const lookbackDays = Number(process.env.BIAS_LOOKBACK_DAYS ?? '30');
+  const minTotalSamples = Number(process.env.BIAS_MIN_TOTAL_SAMPLES ?? '10');
+  const minSourceSamples = Number(process.env.BIAS_MIN_SOURCE_SAMPLES ?? '3');
+  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
   const stats = await prisma.forecastSourceBias.groupBy({
+    where: { capturedAt: { gte: since } },
     by: ['sourceCode'],
     _avg: { bias: true, absError: true },
     _count: { sourceCode: true }
   });
   const totalSamples = stats.reduce((acc, s) => acc + (s._count.sourceCode ?? 0), 0);
-  if (totalSamples < 20) {
+  if (totalSamples < minTotalSamples) {
     // Prevent overfitting before we have enough settled history.
     return null;
   }
   const byCode = new Map(stats.map((s) => [s.sourceCode, s]));
   const rows = [
+    { code: 'wunderground_daily', raw: sourceDailyMax.wundergroundDaily },
     { code: 'open_meteo', raw: sourceDailyMax.openMeteo },
     { code: 'wttr', raw: sourceDailyMax.wttr },
     { code: 'met_no', raw: sourceDailyMax.metNo },
@@ -77,20 +84,22 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
     { code: 'qweather', raw: sourceDailyMax.qWeather }
   ].filter((r): r is { code: string; raw: number } => typeof r.raw === 'number' && Number.isFinite(r.raw));
   if (!rows.length) return null;
-  const rowsWithHistory = rows.filter((r) => (byCode.get(r.code)?._count.sourceCode ?? 0) > 0);
+  const rowsWithHistory = rows.filter((r) => (byCode.get(r.code)?._count.sourceCode ?? 0) >= minSourceSamples);
   if (rowsWithHistory.length < 2) return null;
 
   let wSum = 0;
   let xwSum = 0;
-  const breakdown: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }> = [];
+  const breakdown: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number; biasFactor: number; reliability: number }> = [];
   for (const r of rows) {
     const st = byCode.get(r.code);
     const bias = st?._avg.bias ?? 0;
     const mae = st?._avg.absError ?? 1.5;
     const sampleSize = st?._count.sourceCode ?? 0;
-    const adjusted = r.raw - bias;
-    const weight = 1 / (mae + 0.25);
-    breakdown.push({ code: r.code, raw: r.raw, bias, mae, adjusted, weight, sampleSize });
+    const biasFactor = sampleSize / (sampleSize + 10);
+    const adjusted = r.raw - bias * biasFactor;
+    const reliability = 1 / (mae + 0.25);
+    const weight = reliability * Math.max(0.1, biasFactor);
+    breakdown.push({ code: r.code, raw: r.raw, bias, mae, adjusted, weight, sampleSize, biasFactor, reliability });
     wSum += weight;
     xwSum += adjusted * weight;
   }
@@ -112,6 +121,7 @@ async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: D
 
   const weatherFeatures = fromJsonString<{
     sourceDailyMax?: {
+      wundergroundDaily?: number | null;
       openMeteo?: number | null;
       wttr?: number | null;
       metNo?: number | null;
@@ -124,6 +134,7 @@ async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: D
   if (!max) return;
 
   const rows = [
+    { sourceCode: 'wunderground_daily', sourceGroup: 'free', predictedMax: max.wundergroundDaily },
     { sourceCode: 'open_meteo', sourceGroup: 'free', predictedMax: max.openMeteo },
     { sourceCode: 'wttr', sourceGroup: 'free', predictedMax: max.wttr },
     { sourceCode: 'met_no', sourceGroup: 'free', predictedMax: max.metNo },
@@ -180,6 +191,7 @@ function enforceStrictWeatherSourceGate(
       weatherapi?: string | null;
       qweather?: string | null;
       sourceDailyMax?: {
+        wundergroundDaily?: number | null;
         openMeteo?: number | null;
         wttr?: number | null;
         metNo?: number | null;
@@ -201,6 +213,7 @@ function enforceStrictWeatherSourceGate(
   };
   const sourceDailyMax = meta.sourceDailyMax;
   const inferredMissing = [
+    sourceDailyMax?.wundergroundDaily == null ? 'wunderground_daily' : null,
     sourceDailyMax?.openMeteo == null ? 'open_meteo' : null,
     sourceDailyMax?.wttr == null ? 'wttr' : null,
     sourceDailyMax?.metNo == null ? 'met_no' : null,
@@ -361,13 +374,21 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         cloudCover?: number;
         precipitationProb?: number;
         windSpeed?: number;
+        futureHours?: Array<{ temp?: number }>;
         weatherMaturityScore?: number;
         scenarioTag?: string;
+      };
+      learnedPeakWindow?: {
+        startHour?: number;
+        endHour?: number;
+        medianHour?: number;
+        sampleDays?: number;
       };
     };
   }>(weather.rawJson, {});
   const sourceDailyMax = weatherRaw.raw?.sourceDailyMax as
     | {
+        wundergroundDaily?: number | null;
         openMeteo?: number | null;
         wttr?: number | null;
         metNo?: number | null;
@@ -377,6 +398,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
       }
     | undefined;
   const nowcasting = weatherRaw.raw?.nowcasting;
+  const learnedPeakWindow = weatherRaw.raw?.learnedPeakWindow;
   const biasAdjusted = await computeBiasAdjustedFusedTarget(sourceDailyMax ?? null);
   const fusedTargetMax = biasAdjusted?.fused ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
   const isTargetDateToday = shanghaiDateEquals(market.targetDate, new Date());
@@ -423,6 +445,12 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     targetDate: market.targetDate,
     marketEndAt: market.targetDate,
     marketActive: market.isActive,
+    observedMaxTemp: todayMaxTemp,
+    futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
+    futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
+    futureTemp3h: nowcasting?.futureHours?.[2]?.temp,
+    learnedPeakWindowStartHour: learnedPeakWindow?.startHour,
+    learnedPeakWindowEndHour: learnedPeakWindow?.endHour,
     currentTemp: modelCurrentTemp,
     maxTempSoFar: modelMaxTemp,
     tempRise1h: modelTempRise1h,
@@ -479,6 +507,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         reasonEn: finalDecision.reasonEn,
         weatherMaturityScore: nowcasting?.weatherMaturityScore ?? null,
         scenarioTag: nowcasting?.scenarioTag ?? null,
+        learnedPeakWindow: learnedPeakWindow ?? null,
         calibratedFusedTemp: fusedTargetMax,
         sourceCalibration: biasAdjusted?.breakdown ?? [],
         dailyDecision: {

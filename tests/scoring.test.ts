@@ -15,6 +15,7 @@ test('timing score window', () => {
   assert.equal(calculateTimingScore(10, 30), 20);
   assert.equal(calculateTimingScore(14, 0), 90);
   assert.equal(calculateTimingScore(16, 0), 70);
+  assert.equal(calculateTimingScore(12, 30, { startHour: 12.5, endHour: 15 }), 90);
 });
 
 test('weather and data quality score', () => {

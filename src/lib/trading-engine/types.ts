@@ -27,6 +27,12 @@ export type TradingInput = {
   targetDate?: Date;
   marketEndAt?: Date;
   marketActive?: boolean;
+  observedMaxTemp?: number;
+  futureTemp1h?: number;
+  futureTemp2h?: number;
+  futureTemp3h?: number;
+  learnedPeakWindowStartHour?: number;
+  learnedPeakWindowEndHour?: number;
   currentTemp: number;
   maxTempSoFar: number;
   tempRise1h: number;

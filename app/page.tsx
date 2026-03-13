@@ -84,6 +84,16 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           future1to3h: 'Next 1-3h Forecast',
           scenarioTag: 'Scenario',
           weatherMaturity: 'Weather Maturity Score',
+          learnedPeakWindow: 'Learned Peak Window (30d ZSPD)',
+          learnedPeakWindowSamples: 'Sample Days',
+          apiWuRealtime: 'Wunderground Realtime (ZSPD)',
+          apiWuDaily: 'Wunderground Daily Max',
+          apiWuHistory: 'Wunderground 30d History',
+          apiOpenMeteo: 'Open-Meteo',
+          apiWttr: 'wttr',
+          apiMetNo: 'met.no',
+          apiWeatherApi: 'WeatherAPI',
+          apiQweather: 'QWeather',
           stableSunny: 'Stable Sunny',
           suppressedHeating: 'Suppressed Heating',
           neutral: 'Neutral',
@@ -206,7 +216,17 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           windDir: '风向',
           future1to3h: '未来1-3小时',
           scenarioTag: '场景标签',
-          weatherMaturity: 'Weather Maturity Score',
+          weatherMaturity: '天气成熟度评分',
+          learnedPeakWindow: '近30天学习峰值窗口(ZSPD)',
+          learnedPeakWindowSamples: '样本天数',
+          apiWuRealtime: 'Wunderground 实时(ZSPD)',
+          apiWuDaily: 'Wunderground 次日最高温',
+          apiWuHistory: 'Wunderground 30天历史',
+          apiOpenMeteo: 'Open-Meteo',
+          apiWttr: 'wttr',
+          apiMetNo: 'met.no',
+          apiWeatherApi: 'WeatherAPI',
+          apiQweather: 'QWeather',
           stableSunny: '稳定升温',
           suppressedHeating: '压温场景',
           neutral: '中性',
@@ -251,9 +271,9 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           allBins: '全部盘口（Bin）',
           bin: '盘口',
           ask: '可成交价(ask)',
-          noPrice: 'No价格',
-          bid: 'bid',
-          spread: 'spread',
+          noPrice: '反向价格(No)',
+          bid: '买一价(bid)',
+          spread: '价差(spread)',
           modelYes: '模型Yes',
           modelNo: '模型No',
           evYes: 'EV(Yes)',
@@ -272,7 +292,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const weatherErrors = weatherRaw.raw?.errors ?? [];
   const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
   const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
-  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
+  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { wundergroundDaily?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
   const apiStatusMap = (weatherRaw.raw as {
     apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean }>;
   } | undefined)?.apiStatus ?? {};
@@ -300,6 +320,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     };
   } | undefined)?.nowcasting;
   const forecastExplain = (weatherRaw.raw as { forecastExplain?: { zh?: string; en?: string; method?: string; confidence?: 'high' | 'medium' | 'low' } } | undefined)?.forecastExplain;
+  const learnedPeakWindow = (weatherRaw.raw as { learnedPeakWindow?: { startHour?: number; endHour?: number; sampleDays?: number } } | undefined)?.learnedPeakWindow;
   const resolutionSourceStatus = (weatherRaw.raw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
   const decisionMeta = (data?.latestDecision?.reasonMeta ?? {}) as {
     calibratedFusedTemp?: number;
@@ -315,11 +336,14 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     return s ?? '-';
   };
   const apiRows = [
-    { code: 'open_meteo', label: 'Open-Meteo' },
-    { code: 'wttr', label: 'wttr' },
-    { code: 'met_no', label: 'met.no' },
-    { code: 'weatherapi', label: 'WeatherAPI' },
-    { code: 'qweather', label: 'QWeather' }
+    { code: 'wunderground', label: t.apiWuRealtime },
+    { code: 'wunderground_daily', label: t.apiWuDaily },
+    { code: 'wunderground_history', label: t.apiWuHistory },
+    { code: 'open_meteo', label: t.apiOpenMeteo },
+    { code: 'wttr', label: t.apiWttr },
+    { code: 'met_no', label: t.apiMetNo },
+    { code: 'weatherapi', label: t.apiWeatherApi },
+    { code: 'qweather', label: t.apiQweather }
   ];
   const scenarioLabel = (tag?: string) => {
     if (tag === 'stable_sunny') return t.stableSunny;
@@ -418,7 +442,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <p>{t.precision}: {data?.market.resolutionMetadata?.precisionRule ?? '-'}</p>
           <p>{t.finalizeRule}: {data?.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
           <p>{t.marketSource}: <span className={data?.marketSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.marketSource)}</span></p>
-          <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Open-Meteo + wttr.in）</span></p>
+          <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Wunderground + Open-Meteo + wttr.in + met.no）</span></p>
           <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
           <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
           <p className="md:col-span-2">{t.assistNote}</p>
@@ -437,6 +461,14 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <p>{t.wind}: {nowcasting?.windSpeed != null ? `${nowcasting.windSpeed.toFixed(1)} km/h` : '-'} / {t.windDir} {nowcasting?.windDirection != null ? `${nowcasting.windDirection.toFixed(0)}°` : '-'}</p>
             <p>{t.scenarioTag}: {scenarioLabel(nowcasting?.scenarioTag)}</p>
             <p>{t.weatherMaturity}: {nowcasting?.weatherMaturityScore != null ? nowcasting.weatherMaturityScore.toFixed(0) : '-'}</p>
+            <p>
+              {t.learnedPeakWindow}:{' '}
+              {learnedPeakWindow?.startHour != null && learnedPeakWindow?.endHour != null
+                ? `${learnedPeakWindow.startHour.toFixed(1)}-${learnedPeakWindow.endHour.toFixed(1)}`
+                : '-'}
+              {' | '}
+              {t.learnedPeakWindowSamples}: {learnedPeakWindow?.sampleDays ?? '-'}
+            </p>
           </div>
           <div className="rounded border border-border/60 p-2">
             <p className="mb-1 text-xs font-medium">{t.future1to3h}</p>
@@ -548,7 +580,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="rounded border border-border/60 p-2 text-xs space-y-1">
               <p className="font-medium">{t.sourceBreakdown}</p>
               <p>
-                <span className="text-muted-foreground">{t.freeSources}</span> | Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${Math.round(sourceDailyMax.openMeteo)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${Math.round(sourceDailyMax.wttr)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${Math.round(sourceDailyMax.metNo)}°C` : '-'}
+                <span className="text-muted-foreground">{t.freeSources}</span> | Wunderground {sourceDailyMax?.wundergroundDaily != null ? `${Math.round(sourceDailyMax.wundergroundDaily)}°C` : '-'} / Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${Math.round(sourceDailyMax.openMeteo)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${Math.round(sourceDailyMax.wttr)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${Math.round(sourceDailyMax.metNo)}°C` : '-'}
               </p>
               <p>
                 <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${Math.round(sourceDailyMax.weatherApi)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${Math.round((sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) ?? 0)}°C` : '-'}
@@ -623,7 +655,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <CardHeader><CardTitle>{t.decisionPanel}</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs">
-              {t.topEdge}：{topProfit?.label ?? '-'}（Edge {(topProfit?.edge ?? 0).toFixed(3)}）
+              {t.topEdge}：{topProfit?.label ?? '-'} / {(topProfit?.bestSide ?? '-')}（Edge {(topProfit?.edge ?? 0).toFixed(3)}）
             </p>
             <div className="flex items-center gap-2">
               <span>{t.decision}:</span>

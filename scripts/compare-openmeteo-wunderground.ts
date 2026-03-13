@@ -1,93 +1,119 @@
 import 'dotenv/config';
-import { fetchJsonWithCurlFallback } from '@/lib/utils/http-json';
-import { fetchWundergroundSettledMaxTemp } from '@/lib/services/wunderground-settlement';
+import { prisma } from '@/lib/db';
 
-function shanghaiDateKey(date: Date) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(date);
-  const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
-  const m = parts.find((p) => p.type === 'month')?.value ?? '00';
-  const d = parts.find((p) => p.type === 'day')?.value ?? '00';
-  return `${y}-${m}-${d}`;
-}
+type SourceRow = {
+  sourceCode: string;
+  sourceGroup: string;
+  sampleSize: number;
+  bias: number | null;
+  mae: number | null;
+  rmse: number | null;
+  exactHitRate: number | null;
+  within1CHitRate: number | null;
+  biasFactor: number;
+  reliabilityScore: number;
+};
 
-async function openMeteoDailyMax(dateKey: string) {
-  const url =
-    `https://archive-api.open-meteo.com/v1/archive?latitude=31.1443&longitude=121.8083` +
-    `&start_date=${dateKey}&end_date=${dateKey}&hourly=temperature_2m&timezone=Asia%2FShanghai`;
-  const j = (await fetchJsonWithCurlFallback(url, 15000)) as { hourly?: { temperature_2m?: number[] } };
-  const arr = j.hourly?.temperature_2m ?? [];
-  if (!arr.length) throw new Error('open-meteo archive no hourly data');
-  return Math.max(...arr);
+function summarizeSource(rows: Array<{ bias: number; absError: number }>, sourceCode: string, sourceGroup: string): SourceRow {
+  if (!rows.length) {
+    return {
+      sourceCode,
+      sourceGroup,
+      sampleSize: 0,
+      bias: null,
+      mae: null,
+      rmse: null,
+      exactHitRate: null,
+      within1CHitRate: null,
+      biasFactor: 0,
+      reliabilityScore: 0
+    };
+  }
+
+  const sampleSize = rows.length;
+  const bias = rows.reduce((a, r) => a + r.bias, 0) / sampleSize;
+  const mae = rows.reduce((a, r) => a + Math.abs(r.bias), 0) / sampleSize;
+  const rmse = Math.sqrt(rows.reduce((a, r) => a + r.bias * r.bias, 0) / sampleSize);
+  const exactHit = rows.filter((r) => Math.abs(r.bias) < 0.5).length / sampleSize;
+  const within1C = rows.filter((r) => Math.abs(r.bias) <= 1.0).length / sampleSize;
+  const biasFactor = sampleSize / (sampleSize + 10);
+  const reliabilityScore = (1 / (mae + 0.25)) * Math.max(0.1, biasFactor);
+
+  return {
+    sourceCode,
+    sourceGroup,
+    sampleSize,
+    bias: Number(bias.toFixed(3)),
+    mae: Number(mae.toFixed(3)),
+    rmse: Number(rmse.toFixed(3)),
+    exactHitRate: Number(exactHit.toFixed(3)),
+    within1CHitRate: Number(within1C.toFixed(3)),
+    biasFactor: Number(biasFactor.toFixed(3)),
+    reliabilityScore: Number(reliabilityScore.toFixed(3))
+  };
 }
 
 async function main() {
-  const now = new Date();
-  const rows: Array<{
-    date: string;
-    openMeteo?: number;
-    wunderground?: number;
-    diff?: number;
-    error?: string;
-  }> = [];
+  const lookbackDays = Number(process.env.BIAS_LOOKBACK_DAYS ?? '30');
+  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+  const expectedSources = [
+    { sourceCode: 'open_meteo', sourceGroup: 'free' },
+    { sourceCode: 'wttr', sourceGroup: 'free' },
+    { sourceCode: 'met_no', sourceGroup: 'free' },
+    { sourceCode: 'weatherapi', sourceGroup: 'paid' },
+    { sourceCode: 'qweather', sourceGroup: 'paid' }
+  ] as const;
 
-  for (let i = 1; i <= 10; i++) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const key = shanghaiDateKey(d);
-    try {
-      const [om, wu] = await Promise.all([
-        openMeteoDailyMax(key),
-        fetchWundergroundSettledMaxTemp({
-          targetDate: new Date(`${key}T12:00:00+08:00`),
-          stationCode: 'ZSPD'
-        }).then((x) => x.maxTempC)
-      ]);
-      rows.push({
-        date: key,
-        openMeteo: om,
-        wunderground: wu,
-        diff: Number((om - wu).toFixed(2))
-      });
-    } catch (error) {
-      rows.push({
-        date: key,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
+  const data = await prisma.forecastSourceBias.findMany({
+    where: { capturedAt: { gte: since } },
+    select: {
+      sourceCode: true,
+      sourceGroup: true,
+      forecastDate: true,
+      predictedMax: true,
+      finalMax: true,
+      bias: true,
+      absError: true,
+      capturedAt: true
+    },
+    orderBy: [{ forecastDate: 'desc' }, { sourceCode: 'asc' }]
+  });
+
+  const bySource = new Map<string, Array<{ bias: number; absError: number }>>();
+  for (const row of data) {
+    const key = row.sourceCode;
+    if (!bySource.has(key)) bySource.set(key, []);
+    bySource.get(key)!.push({ bias: row.bias, absError: row.absError });
   }
 
-  const valid = rows.filter((r) => r.error == null && typeof r.diff === 'number');
-  const bias =
-    valid.length > 0
-      ? valid.reduce((acc, r) => acc + (r.diff ?? 0), 0) / valid.length
-      : null;
-  const mae =
-    valid.length > 0
-      ? valid.reduce((acc, r) => acc + Math.abs(r.diff ?? 0), 0) / valid.length
-      : null;
-
-  console.log(
-    JSON.stringify(
-      {
-        station: 'ZSPD',
-        sampleSize: valid.length,
-        bias,
-        mae,
-        rows
-      },
-      null,
-      2
-    )
+  const summary = expectedSources.map((s) =>
+    summarizeSource(bySource.get(s.sourceCode) ?? [], s.sourceCode, s.sourceGroup)
   );
+
+  const out = {
+    station: 'ZSPD',
+    lookbackDays,
+    since: since.toISOString(),
+    sampleSize: data.length,
+    summary,
+    recentSamples: data.slice(0, 120).map((r) => ({
+      date: r.forecastDate.toISOString().slice(0, 10),
+      source: r.sourceCode,
+      predicted: r.predictedMax,
+      final: r.finalMax,
+      bias: r.bias
+    }))
+  };
+
+  console.log(JSON.stringify(out, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
 

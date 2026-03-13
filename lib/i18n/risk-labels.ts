@@ -12,7 +12,9 @@ const RISK_LABELS: Record<string, { zh: string; en: string }> = {
   weather_source_incomplete: { zh: '天气源不完整', en: 'Weather Sources Incomplete' },
   low_data_quality: { zh: '低数据质量', en: 'Low Data Quality' },
   low_weather_maturity: { zh: '短临成熟度低', en: 'Low Weather Maturity' },
-  suppressed_heating: { zh: '压温场景', en: 'Suppressed Heating Scenario' }
+  suppressed_heating: { zh: '压温场景', en: 'Suppressed Heating Scenario' },
+  market_already_priced: { zh: '市场已充分定价', en: 'Market Already Priced' },
+  temperature_locked: { zh: '温度已接近锁定', en: 'Temperature Locked' }
 };
 
 export function riskLabel(code: string, lang: Lang) {

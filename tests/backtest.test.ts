@@ -7,8 +7,15 @@ import { runTradingDecision } from '@/src/lib/trading-engine/tradingEngine';
 test('risk modifier and position sizing', () => {
   const rm = calculateRiskModifier({ cloudCover: 20, precipitationProb: 10, tempRise1h: 0.3 });
   assert.equal(rm, 1);
-  const pos = calculatePositionSize({ totalCapital: 10000, maxSingleTradePercent: 0.1, edge: 0.1, riskModifier: rm });
-  assert.equal(pos, 500);
+  const pos = calculatePositionSize({
+    totalCapital: 10000,
+    maxSingleTradePercent: 0.1,
+    edge: 0.1,
+    sideProbability: 0.7,
+    entryPrice: 0.5,
+    riskModifier: rm
+  });
+  assert.equal(pos, 200);
 });
 
 test('trading decision output structure', () => {
@@ -70,4 +77,37 @@ test('settled market should force PASS and zero position', () => {
   assert.equal(out.decision, 'PASS');
   assert.equal(out.positionSize, 0);
   assert.ok(out.riskFlags.includes('market_settled') || out.riskFlags.includes('market_inactive'));
+});
+
+test('late-session lock should avoid contrarian 13C NO recommendation', () => {
+  const out = runTradingDecision({
+    now: new Date('2026-03-13T08:00:00Z'), // 16:00 Asia/Shanghai
+    targetDate: new Date('2026-03-13T00:00:00+08:00'),
+    observedMaxTemp: 13,
+    futureTemp1h: 13,
+    futureTemp2h: 12,
+    futureTemp3h: 10,
+    currentTemp: 13,
+    maxTempSoFar: 13,
+    tempRise1h: 0.6,
+    tempRise2h: 1.0,
+    tempRise3h: 1.0,
+    cloudCover: 30,
+    precipitationProb: 0,
+    windSpeed: 18,
+    bins: [
+      { label: '13°C', marketPrice: 0.988, noMarketPrice: 0.014 },
+      { label: '14°C', marketPrice: 0.026, noMarketPrice: 0.982 }
+    ],
+    probabilities: [0.306, 0.491],
+    resolutionReady: true,
+    weatherReady: true,
+    marketReady: true,
+    modelReady: true,
+    totalCapital: 10000,
+    maxSingleTradePercent: 0.1
+  });
+
+  assert.notEqual(`${out.recommendedBin}-${out.recommendedSide}`, '13°C-NO');
+  assert.ok(out.riskFlags.includes('temperature_locked'));
 });

@@ -166,8 +166,12 @@ See `.env.example`:
 - `MIN_UPSIDE_TO_TRADE`
 - `MIN_SIDE_PROB_TO_TRADE`
 - `TRADING_COST_PER_TRADE`
+- `SKIP_NEAR_CERTAIN_PRICE`
 - `DECISION_POLICY`
 - `WEATHER_STRICT_SOURCES`
+- `BIAS_LOOKBACK_DAYS`
+- `BIAS_MIN_TOTAL_SAMPLES`
+- `BIAS_MIN_SOURCE_SAMPLES`
 - `WEATHERAPI_KEY` (optional)
 - `WEATHERAPI_API_BASE` (optional)
 - `QWEATHER_API_KEY` (optional)
@@ -178,6 +182,8 @@ See `.env.example`:
 The platform is configured for real data (no fake fallback for core decision outputs):
 
 - Polymarket market APIs
+- Wunderground/Weather.com real-time observations + 1-3h nowcasting (ZSPD) as primary short-term decision input
+- Learned peak-temperature window from latest 30-day ZSPD history (used by timing score)
 - Free weather sources: Open-Meteo / wttr.in / met.no
 - Optional paid weather sources: WeatherAPI / QWeather
 - Wunderground/Weather.com historical observations for settlement sync
@@ -214,3 +220,19 @@ Includes core coverage for:
 - timing/weather/data quality scoring
 - risk modifier and position sizing
 - `runTradingDecision` output shape
+
+## Source Bias Report (30d)
+
+Run:
+
+```bash
+npm run compare:openmeteo-wu
+```
+
+This script now reports rolling 30-day bias stats for all configured sources (`open_meteo`, `wttr`, `met_no`, `weatherapi`, `qweather`) using stored settlement comparisons, including:
+
+- sample size
+- mean bias
+- MAE / RMSE
+- exact-hit / within-1C hit rates
+- bias factor and reliability score
