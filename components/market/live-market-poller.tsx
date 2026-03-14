@@ -19,7 +19,15 @@ function fmt(ts?: string | null) {
   return `${y}-${m}-${day} ${h}:${mi}:${s}`;
 }
 
-export function LiveMarketPoller({ lang = 'zh', lastUpdatedAt }: { lang?: Lang; lastUpdatedAt?: string | null }) {
+export function LiveMarketPoller({
+  lang = 'zh',
+  marketUpdatedAt,
+  weatherUpdatedAt
+}: {
+  lang?: Lang;
+  marketUpdatedAt?: string | null;
+  weatherUpdatedAt?: string | null;
+}) {
   const router = useRouter();
   const [running, setRunning] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -30,7 +38,8 @@ export function LiveMarketPoller({ lang = 'zh', lastUpdatedAt }: { lang?: Lang; 
       lang === 'en'
         ? {
             title: 'Market Live Sync',
-            last: 'Last Market Update',
+            marketLast: 'Last Market Update',
+            weatherLast: 'Last Weather Update',
             stale: 'Stale',
             fresh: 'Fresh',
             start: 'Start Auto Sync',
@@ -41,7 +50,8 @@ export function LiveMarketPoller({ lang = 'zh', lastUpdatedAt }: { lang?: Lang; 
           }
         : {
             title: '盘口实时同步',
-            last: '盘口最后更新时间',
+            marketLast: '盘口最后更新时间',
+            weatherLast: '天气最后更新时间',
             stale: '过期',
             fresh: '正常',
             start: '开启自动同步',
@@ -53,18 +63,41 @@ export function LiveMarketPoller({ lang = 'zh', lastUpdatedAt }: { lang?: Lang; 
     [lang]
   );
 
-  const stale = useMemo(() => {
-    if (!lastUpdatedAt) return true;
-    const ms = Date.now() - new Date(lastUpdatedAt).getTime();
+  const marketStale = useMemo(() => {
+    if (!marketUpdatedAt) return true;
+    const ms = Date.now() - new Date(marketUpdatedAt).getTime();
     return !Number.isFinite(ms) || ms > 3 * 60 * 1000;
-  }, [lastUpdatedAt]);
+  }, [marketUpdatedAt]);
+  const weatherStale = useMemo(() => {
+    if (!weatherUpdatedAt) return true;
+    const ms = Date.now() - new Date(weatherUpdatedAt).getTime();
+    return !Number.isFinite(ms) || ms > 15 * 60 * 1000;
+  }, [weatherUpdatedAt]);
+  const stale = marketStale || weatherStale;
+
+  async function postJob(job: 'market' | 'weather' | 'model') {
+    const res = await fetch('/api/jobs/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job })
+    });
+    if (!res.ok) {
+      let reason = `${res.status}`;
+      try {
+        const data = (await res.json()) as { message?: string };
+        if (data?.message) reason = data.message;
+      } catch {}
+      throw new Error(`${job} ${reason}`);
+    }
+  }
 
   async function doSync() {
     if (syncing) return;
     setSyncing(true);
     try {
-      await fetch('/api/jobs/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: 'market' }) });
-      await fetch('/api/jobs/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: 'model' }) });
+      await postJob('market');
+      await postJob('weather');
+      await postJob('model');
       setLastSyncAt(new Date().toISOString());
       router.refresh();
     } catch {
@@ -88,7 +121,8 @@ export function LiveMarketPoller({ lang = 'zh', lastUpdatedAt }: { lang?: Lang; 
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="font-medium">{t.title}</p>
-          <p className="text-muted-foreground">{t.last}: {fmt(lastUpdatedAt)}</p>
+          <p className="text-muted-foreground">{t.marketLast}: {fmt(marketUpdatedAt)}</p>
+          <p className="text-muted-foreground">{t.weatherLast}: {fmt(weatherUpdatedAt)}</p>
           <p className={stale ? 'text-amber-300' : 'text-emerald-400'}>{stale ? t.stale : t.fresh}</p>
           <p className="text-muted-foreground">{t.synced}: {lastSyncAt ? (lastSyncAt === t.err ? t.err : fmt(lastSyncAt)) : '-'}</p>
         </div>

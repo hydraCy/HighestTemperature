@@ -5,7 +5,12 @@ import { fetchShanghaiMarket } from '@/lib/services/polymarket';
 import { parseResolutionMetadata } from '@/lib/services/resolution-parser';
 import { fetchShanghaiWeatherAssist } from '@/lib/services/weather-assist';
 import { fetchWundergroundSettledMaxTemp } from '@/lib/services/wunderground-settlement';
-import { estimateBinProbabilities } from '@/src/lib/trading-engine/model';
+import { estimateProjectedFinalTemperature } from '@/src/lib/trading-engine/model';
+import {
+  buildIntegerSettlementDistribution,
+  mapIntegerDistributionToBins,
+  pickMostLikelyInteger
+} from '@/src/lib/trading-engine/settlementMapping';
 import { runTradingDecision } from '@/src/lib/trading-engine/tradingEngine';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
 import { Prisma } from '@prisma/client';
@@ -245,6 +250,45 @@ function enforceStrictWeatherSourceGate(
   };
 }
 
+function enforceWeatherFreshnessGate(
+  decision: ReturnType<typeof runTradingDecision>,
+  weatherRawJson: string | null
+) {
+  const maxStaleMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
+  if (!Number.isFinite(maxStaleMinutes) || maxStaleMinutes <= 0) return decision;
+
+  const weatherRaw = fromJsonString<{
+    raw?: {
+      fetchedAtIso?: string;
+      nowcasting?: { observedAt?: string };
+    };
+  }>(weatherRawJson, {});
+  const fetchedAtIso = weatherRaw.raw?.fetchedAtIso ?? null;
+  const observedAtIso = weatherRaw.raw?.nowcasting?.observedAt ?? null;
+  const baselineIso = fetchedAtIso ?? observedAtIso;
+  if (!baselineIso) return decision;
+
+  const baseTs = new Date(baselineIso).getTime();
+  if (!Number.isFinite(baseTs)) return decision;
+  const staleMinutes = (Date.now() - baseTs) / 60000;
+  if (!Number.isFinite(staleMinutes) || staleMinutes <= maxStaleMinutes) return decision;
+
+  const staleRounded = Math.round(staleMinutes);
+  const zh = `天气数据新鲜度不足（已过 ${staleRounded} 分钟，阈值 ${maxStaleMinutes} 分钟），系统禁止给出交易推荐，强制 PASS，仓位为 0。`;
+  const en = `Weather data is stale (${staleRounded} min old, threshold ${maxStaleMinutes} min). Trading recommendation is blocked, forced PASS with zero position.`;
+  const mergedFlags = Array.from(new Set([...(decision.riskFlags ?? []), 'weather_data_stale', 'low_data_quality']));
+  return {
+    ...decision,
+    decision: 'PASS' as const,
+    tradeScore: 0,
+    positionSize: 0,
+    riskFlags: mergedFlags,
+    reasonZh: zh,
+    reasonEn: en,
+    reason: `${zh}\nEN: ${en}`
+  };
+}
+
 export async function refreshMarketData() {
   const marketRes = await fetchShanghaiMarket();
   const m = marketRes.data;
@@ -348,7 +392,7 @@ export async function refreshWeatherData() {
       tempRise2h: w.tempRise2h,
       tempRise3h: w.tempRise3h,
       maxTempSoFar: w.maxTempSoFar,
-      rawJson: toJsonString({ source: weatherRes.source, raw: w.raw })
+      rawJson: toJsonString({ source: weatherRes.source, raw: { ...(w.raw ?? {}), fetchedAtIso: new Date().toISOString() } })
     }
   });
 }
@@ -436,9 +480,6 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     ? (nowcasting?.windSpeed ?? weather.windSpeed ?? 0)
     : (weather.windSpeed ?? 0);
   const todayMaxTemp = nowcasting?.todayMaxTemp ?? weather.maxTempSoFar;
-  const realizedMaxForTarget = isTargetDateToday
-    ? (todayMaxTemp ?? Number.NEGATIVE_INFINITY)
-    : Number.NEGATIVE_INFINITY;
   const sourceSpread = sourceDailyMax?.spread;
   const baseSigma = typeof sourceSpread === 'number' && Number.isFinite(sourceSpread)
     ? Math.max(0.8, Math.min(2.6, 0.9 + sourceSpread * 0.35))
@@ -451,10 +492,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         : baseSigma;
   const modelSigma = Math.max(0.7, Math.min(2.8, sigmaByScenario));
 
-  const probs = estimateBinProbabilities({
-    bins: market.bins.map((b) => b.outcomeLabel),
+  const projectedContinuous = estimateProjectedFinalTemperature({
     currentTemp: modelCurrentTemp,
-    maxTempSoFar: realizedMaxForTarget,
+    maxTempSoFar: isTargetDateToday ? (todayMaxTemp ?? modelCurrentTemp) : modelCurrentTemp,
     observedMaxTemp: todayMaxTemp,
     forecastAnchorTemp: fusedAnchor,
     isTargetDateToday,
@@ -466,9 +506,26 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     tempRise3h: modelTempRise3h,
     cloudCover: modelCloudCover,
     precipitationProb: modelPrecipProb,
-    windSpeed: modelWindSpeed,
-    sigma: modelSigma
+    windSpeed: modelWindSpeed
   });
+  const settlementMean = isTargetDateToday
+    ? Math.max(projectedContinuous, todayMaxTemp ?? Number.NEGATIVE_INFINITY)
+    : projectedContinuous;
+  const minAllowedInteger = isTargetDateToday && typeof todayMaxTemp === 'number' && Number.isFinite(todayMaxTemp)
+    ? Math.round(todayMaxTemp)
+    : undefined;
+  const integerDistribution = buildIntegerSettlementDistribution({
+    mean: settlementMean,
+    sigma: modelSigma,
+    minTemp: 0,
+    maxTemp: 45,
+    minAllowedInteger
+  });
+  const probs = mapIntegerDistributionToBins(
+    market.bins.map((b) => b.outcomeLabel),
+    integerDistribution
+  );
+  const mostLikelyInteger = pickMostLikelyInteger(integerDistribution);
 
   const decision = runTradingDecision({
     now: new Date(),
@@ -482,7 +539,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     learnedPeakWindowStartHour: learnedPeakWindow?.startHour,
     learnedPeakWindowEndHour: learnedPeakWindow?.endHour,
     currentTemp: modelCurrentTemp,
-    maxTempSoFar: modelMaxTemp,
+    maxTempSoFar: mostLikelyInteger,
     tempRise1h: modelTempRise1h,
     tempRise2h: modelTempRise2h,
     tempRise3h: modelTempRise3h,
@@ -505,7 +562,8 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     totalCapital,
     maxSingleTradePercent
   });
-  const strictDecision = enforceStrictWeatherSourceGate(decision, weather.rawJson);
+  const freshnessGatedDecision = enforceWeatherFreshnessGate(decision, weather.rawJson);
+  const strictDecision = enforceStrictWeatherSourceGate(freshnessGatedDecision, weather.rawJson);
   const finalDecision = {
     ...strictDecision,
     decisionMode: 'realtime' as const,
@@ -541,6 +599,8 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         calibratedFusedTemp: fusedAnchor,
         fusedContinuous,
         fusedAnchor,
+        settlementMean,
+        mostLikelyInteger,
         modelSigma,
         sourceCalibration: biasAdjusted?.breakdown ?? [],
         dailyDecision: {

@@ -31,6 +31,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherErrors: 'weather source errors',
           strictBlock: 'Strict mode: at least one weather source is missing. Forecast and recommendation are blocked.',
           strictMissing: 'Missing sources',
+          weatherStaleWarn: 'Weather data freshness is insufficient',
+          staleThreshold: 'threshold',
           weatherDateMismatch: 'Weather date mismatch',
           nonDirectResolution: 'Wunderground direct resolution source is not connected yet; proxy weather estimate only.',
           settledTitle: 'Market is in settlement window or closed',
@@ -70,6 +72,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           targetDate: 'Target Date',
           weatherTargetDate: 'Weather Target Date',
           weatherObservedAt: 'Weather Observed At',
+          weatherFetchedAt: 'Weather Fetched At',
+          weatherFreshness: 'Weather Freshness',
           volume: 'Volume',
           sourceMarketLink: 'Polymarket Link',
           openPolymarket: 'Open Polymarket',
@@ -169,8 +173,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           spread: 'Spread',
           modelYes: 'Model Yes',
           modelNo: 'Model No',
-          evYes: 'EV(Yes)',
-          evNo: 'EV(No)',
+          evConstrained: 'EV(Constrained)',
           preferredSide: 'Preferred Side',
           snapshots: 'Recent Snapshots',
           score: 'Score',
@@ -187,6 +190,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherErrors: '天气源异常',
           strictBlock: '严格模式：存在缺失天气源，预测与交易建议已禁用。',
           strictMissing: '缺失数据源',
+          weatherStaleWarn: '天气数据新鲜度不足',
+          staleThreshold: '阈值',
           weatherDateMismatch: '天气日期不匹配',
           nonDirectResolution: '当前尚未直接接入 Wunderground 结算源，只能用代理天气源估算。',
           settledTitle: '当前市场已到结算窗口或已关闭',
@@ -226,6 +231,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           targetDate: '目标日期',
           weatherTargetDate: '天气数据目标日期',
           weatherObservedAt: '天气观测时间',
+          weatherFetchedAt: '天气抓取时间',
+          weatherFreshness: '天气新鲜度',
           volume: '成交量',
           sourceMarketLink: '原站盘口',
           openPolymarket: '打开 Polymarket',
@@ -325,8 +332,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           spread: '价差(spread)',
           modelYes: '模型Yes',
           modelNo: '模型No',
-          evYes: 'EV(Yes)',
-          evNo: 'EV(No)',
+          evConstrained: 'EV(联动)',
           preferredSide: '优先方向',
           snapshots: '最近快照',
           score: '分数',
@@ -381,8 +387,22 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const resolutionSourceStatus = (weatherRaw.raw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
   const weatherTargetDate = (weatherRaw.raw as { targetDate?: string } | undefined)?.targetDate;
   const weatherObservedAt = (weatherRaw.raw as { nowcasting?: { observedAt?: string } } | undefined)?.nowcasting?.observedAt;
+  const weatherFetchedAt = (weatherRaw.raw as { fetchedAtIso?: string } | undefined)?.fetchedAtIso;
+  const weatherFreshnessMinutes = (() => {
+    const base = weatherFetchedAt ?? weatherObservedAt;
+    if (!base) return null;
+    const ts = new Date(base).getTime();
+    if (!Number.isFinite(ts)) return null;
+    return Math.max(0, Math.round((Date.now() - ts) / 60000));
+  })();
+  const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
+  const isWeatherStale = weatherFreshnessMinutes != null
+    && Number.isFinite(weatherStaleThresholdMinutes)
+    && weatherStaleThresholdMinutes > 0
+    && weatherFreshnessMinutes > weatherStaleThresholdMinutes;
   const decisionMeta = (data?.latestDecision?.reasonMeta ?? {}) as {
     calibratedFusedTemp?: number;
+    mostLikelyInteger?: number;
     sourceCalibration?: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }>;
   };
   const statusLabel = (s?: string) => {
@@ -417,7 +437,6 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     const noPrice = b.noMarketPrice ?? (1 - b.marketPrice);
     const edgeYes = modelYes - b.marketPrice;
     const edgeNo = modelNo - noPrice;
-    const bestEdge = Math.max(edgeYes, edgeNo);
     return {
       label: b.outcomeLabel,
       marketPrice: b.marketPrice,
@@ -428,18 +447,31 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       modelNoProbability: modelNo,
       edgeYes,
       edgeNo,
-      bestEdge,
-      bestSide: edgeYes >= edgeNo ? 'YES' : 'NO',
+      bestEdge: Math.max(edgeYes, edgeNo),
+      bestSide: 'YES' as const,
       edge: out?.edge ?? 0
     };
   });
-  const centerTempRaw = decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? null;
+  const centerTempRaw = decisionMeta.mostLikelyInteger ?? decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? null;
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw) ? Math.round(centerTempRaw) : null;
+  const isTargetBin = (label: string) => {
+    if (centerTemp == null) return false;
+    const p = parseTemperatureBin(label);
+    if (p.min != null && p.max != null) return centerTemp >= p.min && centerTemp < p.max;
+    if (p.min != null && p.max == null) return centerTemp >= p.min;
+    if (p.min == null && p.max != null) return centerTemp < p.max;
+    return false;
+  };
+  const allBinsWithGlobalSide = allBins.map((b) => {
+    const side = isTargetBin(b.label) ? 'YES' : 'NO';
+    const edge = side === 'YES' ? b.edgeYes : b.edgeNo;
+    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: edge, constrainedEv: edge };
+  });
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
   const highProbLabels = new Set(
-    allBins
-      .filter((b) => b.modelProbability >= 0.05)
+    allBinsWithGlobalSide
+      .filter((b) => b.constrainedEv >= 0.03 || b.label === data?.latestDecision?.recommendedBin)
       .map((b) => b.label),
   );
   const isFocusedBin = (label: string) => {
@@ -451,17 +483,17 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     const hi = p.max ?? Number.POSITIVE_INFINITY;
     return hi > focusMin && lo < focusMax;
   };
-  const focusedBins = allBins.filter((b) => isFocusedBin(b.label));
-  const tailBins = allBins.filter((b) => !isFocusedBin(b.label));
-  const topProfit = [...allBins].sort((a, b) => b.bestEdge - a.bestEdge)[0];
+  const focusedBins = allBinsWithGlobalSide.filter((b) => isFocusedBin(b.label));
+  const tailBins = allBinsWithGlobalSide.filter((b) => !isFocusedBin(b.label));
+  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.bestEdge - a.bestEdge)[0];
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
-  const rankingBaseBins = focusedBins.length > 0 ? focusedBins : allBins;
+  const rankingBaseBins = focusedBins.length > 0 ? focusedBins : allBinsWithGlobalSide;
   const opportunityRows = [...rankingBaseBins]
     .map((b) => {
-      const side = b.edgeYes >= b.edgeNo ? 'YES' : 'NO';
+      const side = b.bestSide;
       const modelProb = side === 'YES' ? b.modelProbability : b.modelNoProbability;
       const marketPx = side === 'YES' ? b.marketPrice : b.noMarketPrice;
-      const grossEdge = side === 'YES' ? b.edgeYes : b.edgeNo;
+      const grossEdge = b.bestEdge;
       const netEdge = grossEdge - tradingCost;
       return { label: b.label, side, modelProb, marketPx, grossEdge, netEdge };
     })
@@ -473,7 +505,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const biasStats = data?.biasStats ?? [];
   const recBin = data?.latestDecision?.recommendedBin;
   const recSide = data?.latestDecision?.recommendedSide;
-  const recRow = allBins.find((b) => b.label === recBin);
+  const recRow = allBinsWithGlobalSide.find((b) => b.label === recBin);
   const stakeBase = 1000;
   const sideProb = recRow
     ? (recSide === 'NO' ? recRow.modelNoProbability : recRow.modelProbability)
@@ -529,14 +561,19 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <RefreshAllButton lang={lang} />
         </div>
       </div>
-      <LiveMarketPoller lang={lang} lastUpdatedAt={marketUpdatedAtIso} />
+      <LiveMarketPoller
+        lang={lang}
+        marketUpdatedAt={marketUpdatedAtIso}
+        weatherUpdatedAt={weatherFetchedAt ?? weatherObservedAt ?? null}
+      />
 
-      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady) && (
+      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale) && (
         <Card className="border-amber-500/30">
           <CardContent className="p-4 text-sm text-amber-300">
             {t.warningPrefix}（{t.warningMarket}：{sourceLabel(data?.marketSource)}，{t.warningWeather}：{sourceLabel(data?.weatherSource)}）。
             {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : ''}
             {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
+            {isWeatherStale ? ` ${t.weatherStaleWarn}（${weatherFreshnessMinutes} ${t.mins}，${t.staleThreshold} ${weatherStaleThresholdMinutes} ${t.mins}）` : ''}
             {resolutionSourceStatus !== 'direct' ? ` ${t.nonDirectResolution}` : ''}
             {weatherTargetDate && data?.market?.targetDate && weatherTargetDate !== format(data.market.targetDate, 'yyyy-MM-dd') ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${format(data.market.targetDate, 'yyyy-MM-dd')}` : ''}
           </CardContent>
@@ -572,6 +609,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
           <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
           <p>{t.weatherObservedAt}: {weatherObservedAt ? format(new Date(weatherObservedAt), 'yyyy-MM-dd HH:mm') : '-'}</p>
+          <p>{t.weatherFetchedAt}: {weatherFetchedAt ? format(new Date(weatherFetchedAt), 'yyyy-MM-dd HH:mm:ss') : '-'}</p>
+          <p>{t.weatherFreshness}: {weatherFreshnessMinutes != null ? `${weatherFreshnessMinutes} ${t.mins}` : '-'}</p>
           <p className="md:col-span-2">{t.assistNote}</p>
         </CardContent>
       </Card>
@@ -889,8 +928,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
                 <th className="text-left">{t.spread}</th>
                 <th className="text-left">{t.modelYes}</th>
                 <th className="text-left">{t.modelNo}</th>
-                <th className="text-left">{t.evYes}</th>
-                <th className="text-left">{t.evNo}</th>
+                <th className="text-left">{t.evConstrained}</th>
                 <th className="text-left">{t.preferredSide}</th>
               </tr>
             </thead>
@@ -904,14 +942,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
                   <td>{o.spread != null ? `${(o.spread * 100).toFixed(1)}%` : '-'}</td>
                   <td>{(o.modelProbability * 100).toFixed(1)}%</td>
                   <td>{(o.modelNoProbability * 100).toFixed(1)}%</td>
-                  <td className={o.edgeYes >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.edgeYes.toFixed(3)}</td>
-                  <td className={o.edgeNo >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.edgeNo.toFixed(3)}</td>
+                  <td className={o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.constrainedEv.toFixed(3)}</td>
                   <td>{o.bestSide}</td>
                 </tr>
               ))}
               {tailBins.length > 0 && (
                 <tr className="border-t border-border/60">
-                  <td colSpan={10} className="py-2 text-xs text-muted-foreground">
+                  <td colSpan={9} className="py-2 text-xs text-muted-foreground">
                     {t.tailBins}: {tailBins.map((b) => b.label).join(', ')}
                   </td>
                 </tr>

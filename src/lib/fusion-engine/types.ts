@@ -30,6 +30,10 @@ export type ScenarioContext = {
   precipitationProb: number;
   windSpeed: number;
   nowHourLocal: number;
+  isTargetDateToday?: boolean;
+  peakWindowStartHour?: number;
+  peakWindowEndHour?: number;
+  scenarioTag?: 'stable_sunny' | 'suppressed_heating' | 'neutral';
 };
 
 export type SourceBreakdown = {
@@ -39,6 +43,7 @@ export type SourceBreakdown = {
   matchScore: number;
   accuracyScore: number;
   scenarioScore: number;
+  regimeScore?: number;
   finalWeight: number;
 };
 

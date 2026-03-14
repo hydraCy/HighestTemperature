@@ -17,7 +17,7 @@ export function buildFusionExplanation(
 ) {
   const tops = topWeightedSources(output.sourceBreakdown, 2);
   const topText = tops
-    .map((t) => `${t.sourceName}(权重${(t.finalWeight * 100).toFixed(1)}%，${biasDescription(t)})`)
+    .map((t) => `${t.sourceName}(权重${(t.finalWeight * 100).toFixed(1)}%，时段系数${(t.regimeScore ?? 1).toFixed(2)}，${biasDescription(t)})`)
     .join('、');
 
   const warmSources = output.sourceBreakdown.filter((s) => s.adjustedPredictedMaxTemp > output.fusedTemp + 0.6).map((s) => s.sourceName);

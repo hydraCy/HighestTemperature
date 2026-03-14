@@ -139,3 +139,35 @@ test('should not recommend NO side when NO executable price is missing', () => {
 
   assert.notEqual(out.recommendedSide, 'NO');
 });
+
+test('global mutually-exclusive constraint should force only target-bin YES', () => {
+  const out = runTradingDecision({
+    now: new Date('2026-03-14T03:00:00Z'),
+    targetDate: new Date('2026-03-14T00:00:00+08:00'),
+    currentTemp: 15,
+    maxTempSoFar: 15,
+    tempRise1h: 0.3,
+    tempRise2h: 0.5,
+    tempRise3h: 0.6,
+    cloudCover: 25,
+    precipitationProb: 0,
+    windSpeed: 12,
+    bins: [
+      { label: '15°C', marketPrice: 0.17, noMarketPrice: 0.845 },
+      { label: '16°C', marketPrice: 0.72, noMarketPrice: 0.30 },
+      { label: '17°C', marketPrice: 0.087, noMarketPrice: 0.921 }
+    ],
+    probabilities: [0.397, 0.372, 0.182],
+    resolutionReady: true,
+    weatherReady: true,
+    marketReady: true,
+    modelReady: true,
+    totalCapital: 10000,
+    maxSingleTradePercent: 0.1
+  });
+
+  const by = new Map(out.binOutputs.map((b) => [b.outcomeLabel, b.bestSide]));
+  assert.equal(by.get('15°C'), 'YES');
+  assert.equal(by.get('16°C'), 'NO');
+  assert.equal(by.get('17°C'), 'NO');
+});

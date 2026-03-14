@@ -10,6 +10,7 @@ const RISK_LABELS: Record<string, { zh: string; en: string }> = {
   market_settled: { zh: '市场已结算', en: 'Market Settled' },
   market_inactive: { zh: '市场非活跃', en: 'Market Inactive' },
   weather_source_incomplete: { zh: '天气源不完整', en: 'Weather Sources Incomplete' },
+  weather_data_stale: { zh: '天气数据过期', en: 'Weather Data Stale' },
   low_data_quality: { zh: '低数据质量', en: 'Low Data Quality' },
   low_weather_maturity: { zh: '短临成熟度低', en: 'Low Weather Maturity' },
   suppressed_heating: { zh: '压温场景', en: 'Suppressed Heating Scenario' },

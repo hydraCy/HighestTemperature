@@ -168,13 +168,17 @@ See `.env.example`:
 - `MIN_SIDE_PROB_TO_TRADE`
 - `TRADING_COST_PER_TRADE`
 - `NO_PRICE_FALLBACK_PENALTY` (penalty added when NO executable price is missing)
+- `WEATHER_STALE_MINUTES` (hard freshness gate; if latest weather is older than this threshold, decision is forced to `PASS`)
 - `SKIP_NEAR_CERTAIN_PRICE`
 - `MAX_TEMP_UPSHIFT_THRESHOLD`
 - `DECISION_POLICY`
 - `WEATHER_STRICT_SOURCES`
+- `FUSION_EXCLUDED_SOURCES` (exclude sources from fusion weighting; default excludes `open_meteo`)
 - `BIAS_LOOKBACK_DAYS`
 - `BIAS_MIN_TOTAL_SAMPLES`
 - `BIAS_MIN_SOURCE_SAMPLES`
+- `FUSION_CALIBRATION_LOOKBACK_DAYS` (lookback window for fusion calibration rows)
+- `FUSION_CALIBRATION_BUCKET_MIN_SAMPLES` (minimum sample size for scenario/time bucket override)
 - `WEATHERAPI_KEY` (optional)
 - `WEATHERAPI_API_BASE` (optional)
 - `QWEATHER_API_KEY` (optional)
@@ -199,7 +203,7 @@ If external sources fail:
 
 Default strict weather source requirement:
 
-- `WEATHER_STRICT_SOURCES=open_meteo,wttr,met_no`
+- `WEATHER_STRICT_SOURCES=wttr,met_no`
 
 ## Station Binding
 

@@ -48,3 +48,40 @@ test('fusion engine normalizes weights and outcome probabilities', () => {
   assert.equal(out.outcomeProbabilities.at(-1)?.label, '25°C');
   assert.ok(out.explanation.includes('融合结果'));
 });
+
+test('fusion engine applies time-regime weighting near peak window', () => {
+  const baseInput: FusionInput = {
+    sources: [
+      { sourceName: 'wunderground_daily', rawPredictedMaxTemp: 15.8, stationType: 'exact_station' },
+      { sourceName: 'open_meteo', rawPredictedMaxTemp: 14.2, stationType: 'grid_point' }
+    ],
+    calibrations: [
+      { sourceName: 'wunderground_daily', sampleSize: 50, bias: 0, mae: 1.0, exactHitRate: 0.3, within1CHitRate: 0.7 },
+      { sourceName: 'open_meteo', sampleSize: 50, bias: 0, mae: 1.0, exactHitRate: 0.3, within1CHitRate: 0.7 }
+    ],
+    resolutionContext: {
+      cityName: 'Shanghai',
+      resolutionStationName: 'Shanghai Pudong International Airport Station',
+      resolutionSourceName: 'Wunderground',
+      precision: 'integer_celsius'
+    },
+    scenarioContext: {
+      currentTemp: 14,
+      tempRise1h: 0.4,
+      tempRise2h: 0.8,
+      cloudCover: 30,
+      precipitationProb: 5,
+      windSpeed: 10,
+      nowHourLocal: 15,
+      isTargetDateToday: true,
+      peakWindowEndHour: 16,
+      scenarioTag: 'stable_sunny'
+    }
+  };
+
+  const out = runFusionEngine(baseInput);
+  const wu = out.sourceBreakdown.find((x) => x.sourceName === 'wunderground_daily');
+  const om = out.sourceBreakdown.find((x) => x.sourceName === 'open_meteo');
+  assert.ok(wu && om);
+  assert.ok((wu?.regimeScore ?? 0) > (om?.regimeScore ?? 0));
+});

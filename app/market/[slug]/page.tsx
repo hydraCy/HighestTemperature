@@ -35,6 +35,8 @@ export default async function MarketDetailPage({
           strictMissing: 'Missing sources',
           weatherDateMismatch: 'Weather date mismatch',
           refreshHint: 'Please refresh and verify API status.',
+          weatherStaleWarn: 'Weather data freshness is insufficient',
+          staleThreshold: 'threshold',
           settledWarn: 'This market is in settlement window or closed',
           settlementTime: 'Settlement Time',
           avoidTrade: 'Not recommended to trade further.',
@@ -48,6 +50,8 @@ export default async function MarketDetailPage({
           finalizedRule: 'Finalization Rule',
           weatherTargetDate: 'Weather Target Date',
           weatherObservedAt: 'Weather Observed At',
+          weatherFetchedAt: 'Weather Fetched At',
+          weatherFreshness: 'Weather Freshness',
           assistNote: 'Assist weather data is not final resolution basis. Final resolution follows Polymarket rules and designated source.',
           modelEdgeTable: 'Model / Edge Table',
           focusedBins: 'Focused Tradable Bins (Center ±2)',
@@ -60,8 +64,7 @@ export default async function MarketDetailPage({
           spread: 'Spread',
           modelYes: 'Model Yes',
           modelNo: 'Model No',
-          evYes: 'EV(Yes)',
-          evNo: 'EV(No)',
+          evConstrained: 'EV(Constrained)',
           prefSide: 'Preferred Side',
           decisionOutput: 'Decision Output',
           topEdge: 'Top net edge opportunity',
@@ -100,6 +103,8 @@ export default async function MarketDetailPage({
           strictMissing: '缺失数据源',
           weatherDateMismatch: '天气日期不匹配',
           refreshHint: '建议先刷新并确认 API 正常。',
+          weatherStaleWarn: '天气数据新鲜度不足',
+          staleThreshold: '阈值',
           settledWarn: '该市场已到结算窗口或已关闭',
           settlementTime: '结算时间',
           avoidTrade: '不建议继续下单。',
@@ -113,6 +118,8 @@ export default async function MarketDetailPage({
           finalizedRule: '最终规则',
           weatherTargetDate: '天气数据目标日期',
           weatherObservedAt: '天气观测时间',
+          weatherFetchedAt: '天气抓取时间',
+          weatherFreshness: '天气新鲜度',
           assistNote: '辅助天气数据不是最终结算依据，结算以 Polymarket 规则与指定来源为准。',
           modelEdgeTable: '模型 / Edge 表',
           focusedBins: '聚焦可交易盘口（中心温度±2）',
@@ -125,8 +132,7 @@ export default async function MarketDetailPage({
           spread: 'spread',
           modelYes: '模型Yes',
           modelNo: '模型No',
-          evYes: 'EV(Yes)',
-          evNo: 'EV(No)',
+          evConstrained: 'EV(联动)',
           prefSide: '优先方向',
           decisionOutput: '决策输出',
           topEdge: '最高净利润机会',
@@ -174,7 +180,6 @@ export default async function MarketDetailPage({
     const noPrice = b.noMarketPrice ?? (1 - b.marketPrice);
     const edgeYes = modelYes - b.marketPrice;
     const edgeNo = modelNo - noPrice;
-    const bestEdge = Math.max(edgeYes, edgeNo);
     return {
       label: b.outcomeLabel,
       marketPrice: b.marketPrice,
@@ -185,21 +190,35 @@ export default async function MarketDetailPage({
       modelNoProbability: modelNo,
       edgeYes,
       edgeNo,
-      bestEdge,
-      bestSide: edgeYes >= edgeNo ? 'YES' : 'NO',
+      bestEdge: Math.max(edgeYes, edgeNo),
+      bestSide: 'YES' as const,
       edge: out?.edge ?? 0
     };
   });
-  const topProfit = [...allBins].sort((a, b) => b.bestEdge - a.bestEdge)[0];
-  const reasonMeta = fromJsonString<{ calibratedFusedTemp?: number }>(latestRun?.rawFeaturesJson, {});
-  const centerTemp = typeof reasonMeta.calibratedFusedTemp === 'number' && Number.isFinite(reasonMeta.calibratedFusedTemp)
-    ? Math.round(reasonMeta.calibratedFusedTemp)
+  const reasonMeta = fromJsonString<{ calibratedFusedTemp?: number; mostLikelyInteger?: number }>(latestRun?.rawFeaturesJson, {});
+  const centerTempRaw = reasonMeta.mostLikelyInteger ?? reasonMeta.calibratedFusedTemp;
+  const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw)
+    ? Math.round(centerTempRaw)
     : null;
+  const isTargetBin = (label: string) => {
+    if (centerTemp == null) return false;
+    const p = parseTemperatureBin(label);
+    if (p.min != null && p.max != null) return centerTemp >= p.min && centerTemp < p.max;
+    if (p.min != null && p.max == null) return centerTemp >= p.min;
+    if (p.min == null && p.max != null) return centerTemp < p.max;
+    return false;
+  };
+  const allBinsWithGlobalSide = allBins.map((b) => {
+    const side = isTargetBin(b.label) ? 'YES' : 'NO';
+    const edge = side === 'YES' ? b.edgeYes : b.edgeNo;
+    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: edge, constrainedEv: edge };
+  });
+  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.bestEdge - a.bestEdge)[0];
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
   const highProbLabels = new Set(
-    allBins
-      .filter((b) => b.modelProbability >= 0.05)
+    allBinsWithGlobalSide
+      .filter((b) => b.constrainedEv >= 0.03 || b.label === latestRun?.bestBin)
       .map((b) => b.label),
   );
   const isFocusedBin = (label: string) => {
@@ -211,12 +230,25 @@ export default async function MarketDetailPage({
     const hi = p.max ?? Number.POSITIVE_INFINITY;
     return hi > focusMin && lo < focusMax;
   };
-  const focusedBins = allBins.filter((b) => isFocusedBin(b.label));
-  const tailBins = allBins.filter((b) => !isFocusedBin(b.label));
+  const focusedBins = allBinsWithGlobalSide.filter((b) => isFocusedBin(b.label));
+  const tailBins = allBinsWithGlobalSide.filter((b) => !isFocusedBin(b.label));
   const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data.latestWeather?.rawJson, {});
   const weatherErrors = weatherRaw.raw?.errors ?? [];
   const weatherTargetDate = (weatherRaw.raw as { targetDate?: string } | undefined)?.targetDate;
   const weatherObservedAt = (weatherRaw.raw as { nowcasting?: { observedAt?: string } } | undefined)?.nowcasting?.observedAt;
+  const weatherFetchedAt = (weatherRaw.raw as { fetchedAtIso?: string } | undefined)?.fetchedAtIso;
+  const weatherFreshnessMinutes = (() => {
+    const base = weatherFetchedAt ?? weatherObservedAt;
+    if (!base) return null;
+    const ts = new Date(base).getTime();
+    if (!Number.isFinite(ts)) return null;
+    return Math.max(0, Math.round((Date.now() - ts) / 60000));
+  })();
+  const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
+  const isWeatherStale = weatherFreshnessMinutes != null
+    && Number.isFinite(weatherStaleThresholdMinutes)
+    && weatherStaleThresholdMinutes > 0
+    && weatherFreshnessMinutes > weatherStaleThresholdMinutes;
   const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
   const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
 
@@ -235,12 +267,13 @@ export default async function MarketDetailPage({
         </div>
       </div>
 
-      {(data.marketSource !== 'api' || data.weatherSource !== 'api' || weatherErrors.length > 0 || !strictReady) && (
+      {(data.marketSource !== 'api' || data.weatherSource !== 'api' || weatherErrors.length > 0 || !strictReady || isWeatherStale) && (
         <Card className="border-amber-500/30">
           <CardContent className="p-4 text-sm text-amber-300">
             {t.warning}（{t.market}：{data.marketSource}，{t.weather}：{data.weatherSource}）。
             {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : t.refreshHint}
             {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
+            {isWeatherStale ? ` ${t.weatherStaleWarn}（${weatherFreshnessMinutes} ${lang === 'en' ? 'min' : '分钟'}，${t.staleThreshold} ${weatherStaleThresholdMinutes} ${lang === 'en' ? 'min' : '分钟'}）` : ''}
             {weatherTargetDate && weatherTargetDate !== format(data.market.targetDate, 'yyyy-MM-dd') ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${format(data.market.targetDate, 'yyyy-MM-dd')}` : ''}
           </CardContent>
         </Card>
@@ -270,6 +303,8 @@ export default async function MarketDetailPage({
           <p>{t.finalizedRule}: {data.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
           <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
           <p>{t.weatherObservedAt}: {weatherObservedAt ? format(new Date(weatherObservedAt), 'yyyy-MM-dd HH:mm') : '-'}</p>
+          <p>{t.weatherFetchedAt}: {weatherFetchedAt ? format(new Date(weatherFetchedAt), 'yyyy-MM-dd HH:mm:ss') : '-'}</p>
+          <p>{t.weatherFreshness}: {weatherFreshnessMinutes != null ? `${weatherFreshnessMinutes} ${lang === 'en' ? 'min' : '分钟'}` : '-'}</p>
           <p className="md:col-span-2 text-xs text-muted-foreground">{t.assistNote}</p>
         </CardContent>
       </Card>
@@ -291,8 +326,7 @@ export default async function MarketDetailPage({
                   <TableHead>{t.spread}</TableHead>
                   <TableHead>{t.modelYes}</TableHead>
                   <TableHead>{t.modelNo}</TableHead>
-                  <TableHead>{t.evYes}</TableHead>
-                  <TableHead>{t.evNo}</TableHead>
+                  <TableHead>{t.evConstrained}</TableHead>
                   <TableHead>{t.prefSide}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -306,14 +340,13 @@ export default async function MarketDetailPage({
                     <TableCell>{o.spread != null ? `${(o.spread * 100).toFixed(1)}%` : '-'}</TableCell>
                     <TableCell>{(o.modelProbability * 100).toFixed(1)}%</TableCell>
                     <TableCell>{(o.modelNoProbability * 100).toFixed(1)}%</TableCell>
-                    <TableCell className={o.edgeYes >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.edgeYes.toFixed(3)}</TableCell>
-                    <TableCell className={o.edgeNo >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.edgeNo.toFixed(3)}</TableCell>
+                    <TableCell className={o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.constrainedEv.toFixed(3)}</TableCell>
                     <TableCell>{o.bestSide}</TableCell>
                   </TableRow>
                 ))}
                 {tailBins.length > 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-xs text-muted-foreground">
+                    <TableCell colSpan={9} className="text-xs text-muted-foreground">
                       {t.tailBins}: {tailBins.map((b) => b.label).join(', ')}
                     </TableCell>
                   </TableRow>

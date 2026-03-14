@@ -160,13 +160,24 @@ type ApiHealth = {
 
 function strictSourceListFromEnv(): WeatherSourceCode[] {
   const raw = process.env.WEATHER_STRICT_SOURCES?.trim();
-  if (!raw) return ['open_meteo', 'wttr', 'met_no'];
+  if (!raw) return ['wttr', 'met_no'];
   const allowed: WeatherSourceCode[] = ['wunderground', 'wunderground_daily', 'wunderground_history', 'open_meteo', 'wttr', 'met_no', 'weatherapi', 'qweather'];
   const list = raw
     .split(',')
     .map((x) => x.trim().toLowerCase())
     .filter((x): x is WeatherSourceCode => allowed.includes(x as WeatherSourceCode));
-  return list.length ? Array.from(new Set(list)) : ['open_meteo', 'wttr', 'met_no'];
+  return list.length ? Array.from(new Set(list)) : ['wttr', 'met_no'];
+}
+
+function fusionExcludedSourcesFromEnv() {
+  const raw = process.env.FUSION_EXCLUDED_SOURCES?.trim();
+  if (!raw) return new Set<string>(['open_meteo']);
+  return new Set(
+    raw
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean),
+  );
 }
 
 export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ data: WeatherAssist; source: 'api' }> {
@@ -590,6 +601,7 @@ async function buildAssistFromTargetDay(
   const qWeatherDailyMaxInt = toResolutionInt(qWeatherDailyMax);
   const rowDailyMax = toResolutionInt(rowDailyMaxRaw) ?? 0;
 
+  const fusionExcluded = fusionExcludedSourcesFromEnv();
   const fusionSources: WeatherSourceInput[] = [
     wuDailyMax != null ? { sourceName: 'wunderground_daily', rawPredictedMaxTemp: wuDailyMax, stationType: 'exact_station' } : null,
     openDailyMaxRaw != null ? { sourceName: 'open_meteo', rawPredictedMaxTemp: openDailyMaxRaw, stationType: 'grid_point' } : null,
@@ -597,8 +609,14 @@ async function buildAssistFromTargetDay(
     metNoDailyMaxRaw != null ? { sourceName: 'met_no', rawPredictedMaxTemp: metNoDailyMaxRaw, stationType: 'grid_point' } : null,
     weatherApiDailyMax != null ? { sourceName: 'weatherapi', rawPredictedMaxTemp: weatherApiDailyMax, stationType: 'city_level' } : null,
     qWeatherDailyMax != null ? { sourceName: 'qweather', rawPredictedMaxTemp: qWeatherDailyMax, stationType: 'city_level' } : null
-  ].filter((x): x is WeatherSourceInput => Boolean(x));
-  const calibrations = await loadFusionCalibrations();
+  ]
+    .filter((x): x is WeatherSourceInput => Boolean(x))
+    .filter((x) => !fusionExcluded.has(x.sourceName.toLowerCase()));
+  const calibrations = await loadFusionCalibrations({
+    scenarioTag: nowcasting.scenarioTag,
+    nowHourLocal: hourOf(new Date()),
+    isTargetDateToday: toDateKey(new Date()) === targetDateKey
+  });
   const fusionOutput =
     fusionSources.length >= 2
       ? runFusionEngine({
@@ -617,7 +635,11 @@ async function buildAssistFromTargetDay(
             cloudCover: nowcasting.cloudCover,
             precipitationProb: nowcasting.precipitationProb,
             windSpeed: nowcasting.windSpeed,
-            nowHourLocal: hourOf(new Date())
+            nowHourLocal: hourOf(new Date()),
+            isTargetDateToday: toDateKey(new Date()) === targetDateKey,
+            peakWindowStartHour: wuPeakWindow?.startHour,
+            peakWindowEndHour: wuPeakWindow?.endHour,
+            scenarioTag: nowcasting.scenarioTag
           }
         })
       : null;
@@ -638,7 +660,7 @@ async function buildAssistFromTargetDay(
     sourceSpread == null ? 'low' : sourceSpread <= 1 ? 'high' : sourceSpread <= 2.5 ? 'medium' : 'low';
 
   return {
-    observedAt: peak.time,
+    observedAt: nowcasting.observedAt,
     temperature2m: dailyMax,
     humidity: peak.humidity,
     cloudCover: peak.cloud,
@@ -684,7 +706,8 @@ async function buildAssistFromTargetDay(
               weight: Number((s.finalWeight * 100).toFixed(2)),
               matchScore: s.matchScore,
               accuracyScore: s.accuracyScore,
-              scenarioScore: s.scenarioScore
+              scenarioScore: s.scenarioScore,
+              regimeScore: s.regimeScore ?? 1
             }))
           : [],
         zh: fusionOutput
@@ -698,20 +721,147 @@ async function buildAssistFromTargetDay(
   };
 }
 
-async function loadFusionCalibrations(): Promise<HistoricalCalibration[]> {
-  const stats = await prisma.forecastSourceBias.groupBy({
-    by: ['sourceCode'],
-    _avg: { bias: true, absError: true },
-    _count: { sourceCode: true }
+type CalibrationLoadContext = {
+  scenarioTag?: 'stable_sunny' | 'suppressed_heating' | 'neutral';
+  nowHourLocal: number;
+  isTargetDateToday: boolean;
+};
+
+type BiasRowLite = {
+  sourceCode: string;
+  bias: number;
+  absError: number;
+  predictedMax: number;
+  finalMax: number;
+  capturedAt: Date;
+  snapshot: { weatherFeaturesJson: string } | null;
+};
+
+function toDayPart(hour: number) {
+  if (hour < 12) return 'morning';
+  if (hour < 15.5) return 'midday';
+  return 'late';
+}
+
+function inferScenarioTagFromWeatherJson(weatherFeaturesJson: string | null | undefined): 'stable_sunny' | 'suppressed_heating' | 'neutral' {
+  if (!weatherFeaturesJson) return 'neutral';
+  try {
+    const parsed = JSON.parse(weatherFeaturesJson) as {
+      nowcasting?: {
+        scenarioTag?: 'stable_sunny' | 'suppressed_heating' | 'neutral';
+        cloudCover?: number;
+        precipitationProb?: number;
+        tempRise1h?: number;
+      };
+    };
+    if (parsed?.nowcasting?.scenarioTag) return parsed.nowcasting.scenarioTag;
+    const cloud = Number(parsed?.nowcasting?.cloudCover ?? 0);
+    const rain = Number(parsed?.nowcasting?.precipitationProb ?? 0);
+    const rise = Number(parsed?.nowcasting?.tempRise1h ?? 0);
+    if (cloud < 40 && rain < 20 && rise > 0) return 'stable_sunny';
+    if (cloud > 70 || rain > 40 || rise <= 0) return 'suppressed_heating';
+    return 'neutral';
+  } catch {
+    return 'neutral';
+  }
+}
+
+function aggregateCalibration(rows: BiasRowLite[]) {
+  const bySource = new Map<string, {
+    sourceName: string;
+    sampleSize: number;
+    biasSum: number;
+    absSum: number;
+    exactCount: number;
+    within1Count: number;
+  }>();
+
+  for (const row of rows) {
+    const bucket = bySource.get(row.sourceCode) ?? {
+      sourceName: row.sourceCode,
+      sampleSize: 0,
+      biasSum: 0,
+      absSum: 0,
+      exactCount: 0,
+      within1Count: 0
+    };
+    bucket.sampleSize += 1;
+    bucket.biasSum += row.bias;
+    bucket.absSum += row.absError;
+    const p = Math.round(row.predictedMax);
+    const f = Math.round(row.finalMax);
+    if (p === f) bucket.exactCount += 1;
+    if (Math.abs(p - f) <= 1) bucket.within1Count += 1;
+    bySource.set(row.sourceCode, bucket);
+  }
+
+  const out = new Map<string, HistoricalCalibration>();
+  for (const item of bySource.values()) {
+    out.set(item.sourceName, {
+      sourceName: item.sourceName,
+      sampleSize: item.sampleSize,
+      bias: item.sampleSize ? item.biasSum / item.sampleSize : 0,
+      mae: item.sampleSize ? item.absSum / item.sampleSize : 1.5,
+      exactHitRate: item.sampleSize ? item.exactCount / item.sampleSize : 0,
+      within1CHitRate: item.sampleSize ? item.within1Count / item.sampleSize : 0
+    });
+  }
+  return out;
+}
+
+async function loadFusionCalibrations(ctx: CalibrationLoadContext): Promise<HistoricalCalibration[]> {
+  const lookbackDays = Number(process.env.FUSION_CALIBRATION_LOOKBACK_DAYS ?? '60');
+  const minBucketSamples = Number(process.env.FUSION_CALIBRATION_BUCKET_MIN_SAMPLES ?? '6');
+  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+  const rows = await prisma.forecastSourceBias.findMany({
+    where: { capturedAt: { gte: since } },
+    select: {
+      sourceCode: true,
+      bias: true,
+      absError: true,
+      predictedMax: true,
+      finalMax: true,
+      capturedAt: true,
+      snapshot: { select: { weatherFeaturesJson: true } }
+    }
   });
-  return stats.map((s) => ({
-    sourceName: s.sourceCode,
-    sampleSize: s._count.sourceCode ?? 0,
-    bias: s._avg.bias ?? 0,
-    mae: s._avg.absError ?? 1.5,
-    exactHitRate: 0,
-    within1CHitRate: 0
-  }));
+  if (!rows.length) return [];
+
+  const global = aggregateCalibration(rows as BiasRowLite[]);
+  const targetDayPart = ctx.isTargetDateToday ? toDayPart(ctx.nowHourLocal) : 'morning';
+  const targetScenario = ctx.scenarioTag ?? 'neutral';
+  const bucketRows = (rows as BiasRowLite[]).filter((r) => {
+    const scenario = inferScenarioTagFromWeatherJson(r.snapshot?.weatherFeaturesJson);
+    const dayPart = toDayPart(hourOf(r.capturedAt));
+    return scenario === targetScenario && dayPart === targetDayPart;
+  });
+  const scenarioRows = (rows as BiasRowLite[]).filter((r) => {
+    const scenario = inferScenarioTagFromWeatherJson(r.snapshot?.weatherFeaturesJson);
+    return scenario === targetScenario;
+  });
+  const bucket = aggregateCalibration(bucketRows);
+  const scenarioOnly = aggregateCalibration(scenarioRows);
+
+  const allSources = new Set<string>([
+    ...global.keys(),
+    ...bucket.keys(),
+    ...scenarioOnly.keys()
+  ]);
+
+  return [...allSources].map((sourceName) => {
+    const bucketCal = bucket.get(sourceName);
+    if (bucketCal && bucketCal.sampleSize >= minBucketSamples) return bucketCal;
+    const scenarioCal = scenarioOnly.get(sourceName);
+    if (scenarioCal && scenarioCal.sampleSize >= minBucketSamples) return scenarioCal;
+    return global.get(sourceName) ?? {
+      sourceName,
+      sampleSize: 0,
+      bias: 0,
+      mae: 1.5,
+      exactHitRate: 0,
+      within1CHitRate: 0
+    };
+  });
 }
 
 function toResolutionInt(value: number | null | undefined) {
@@ -930,7 +1080,7 @@ function buildNowcastingContext(
   const tempRise2h = currentTemp - prev2.temp;
   const tempRise3h = currentTemp - prev3.temp;
 
-  const scenarioTag = (cloudCover < 40 && precipitationProb < 20 && tempRise1h > 0)
+  const scenarioTag: 'stable_sunny' | 'suppressed_heating' | 'neutral' = (cloudCover < 40 && precipitationProb < 20 && tempRise1h > 0)
     ? 'stable_sunny'
     : (cloudCover > 70 || precipitationProb > 40 || tempRise1h <= 0)
       ? 'suppressed_heating'

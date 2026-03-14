@@ -28,6 +28,14 @@ export function accuracyScoreFromMae(mae: number) {
   return 1 / (safeMae + 0.25);
 }
 
+export function calibrationQualityScore(cal: HistoricalCalibration) {
+  const maeScore = accuracyScoreFromMae(cal.mae);
+  const hit = Number.isFinite(cal.within1CHitRate) ? Math.max(0, Math.min(1, cal.within1CHitRate)) : 0.5;
+  const sample = Number.isFinite(cal.sampleSize) ? Math.max(0, cal.sampleSize) : 0;
+  const sampleFactor = sample / (sample + 12);
+  return maeScore * (0.7 + 0.3 * hit) * Math.max(0.25, sampleFactor);
+}
+
 export function sourceSigmaFromMae(mae: number) {
   const safeMae = Number.isFinite(mae) && mae >= 0 ? mae : DEFAULT_CALIBRATION.mae;
   return Math.max(0.6, safeMae * 1.25);

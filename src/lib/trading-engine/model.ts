@@ -1,6 +1,6 @@
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
 
-export function estimateBinProbabilities(input: {
+type ProbabilityInput = {
   bins: string[];
   currentTemp: number;
   maxTempSoFar: number;
@@ -17,8 +17,9 @@ export function estimateBinProbabilities(input: {
   precipitationProb: number;
   windSpeed: number;
   sigma?: number;
-}): number[] {
-  const width = Number.isFinite(input.sigma) ? Math.max(0.7, Number(input.sigma)) : 1.2;
+};
+
+export function estimateProjectedFinalTemperature(input: Omit<ProbabilityInput, 'bins' | 'sigma'>) {
   const momentum = input.tempRise2h * 0.6 + input.tempRise1h * 0.4;
   const weatherPenalty = input.cloudCover > 70 ? 0.8 : 0.2 + input.precipitationProb * 0.01;
   const forecastAnchor = Number.isFinite(input.forecastAnchorTemp)
@@ -35,8 +36,12 @@ export function estimateBinProbabilities(input: {
   const futureCap = futureTemps.length
     ? Math.max(input.maxTempSoFar, input.currentTemp, ...futureTemps) + 0.4
     : Number.POSITIVE_INFINITY;
-  const projectedFinal = Math.min(projectedFinalRaw, futureCap);
+  return Math.min(projectedFinalRaw, futureCap);
+}
 
+export function estimateBinProbabilities(input: ProbabilityInput): number[] {
+  const width = Number.isFinite(input.sigma) ? Math.max(0.7, Number(input.sigma)) : 1.2;
+  const projectedFinal = estimateProjectedFinalTemperature(input);
   const raw = input.bins.map((label) => {
     const p = parseTemperatureBin(label);
     let center = projectedFinal;

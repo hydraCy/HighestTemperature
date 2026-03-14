@@ -1,5 +1,5 @@
 import {
-  accuracyScoreFromMae,
+  calibrationQualityScore,
   applyBiasCalibration,
   calibrationMap,
   getCalibration,
@@ -8,6 +8,7 @@ import {
 import { buildFusionExplanation } from '@/src/lib/fusion-engine/explain';
 import { matchScore } from '@/src/lib/fusion-engine/matchScore';
 import { normalIntervalProbability } from '@/src/lib/fusion-engine/normalDist';
+import { regimeScoreForSource } from '@/src/lib/fusion-engine/regimeScore';
 import { scenarioLabel, scenarioScoreForSource } from '@/src/lib/fusion-engine/scenarioScore';
 import type {
   FusionInput,
@@ -50,6 +51,7 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
 
   const calibMap = calibrationMap(input.calibrations);
 
+  const scenario = scenarioLabel(input.scenarioContext);
   const preAdjusted = input.sources.map((src) => {
     const cal = getCalibration(src.sourceName, calibMap);
     return {
@@ -57,7 +59,8 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
       stationType: src.stationType,
       rawPredictedMaxTemp: src.rawPredictedMaxTemp,
       adjustedPredictedMaxTemp: applyBiasCalibration(src.rawPredictedMaxTemp, cal.bias),
-      mae: cal.mae
+      mae: cal.mae,
+      calibration: cal
     };
   });
 
@@ -65,18 +68,23 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
 
   const scored = preAdjusted.map((row) => {
     const mScore = matchScore(row.stationType);
-    const aScore = accuracyScoreFromMae(row.mae);
+    const aScore = calibrationQualityScore(row.calibration);
     const sScore = scenarioScoreForSource(
       input.scenarioContext,
       row.adjustedPredictedMaxTemp,
       adjustedMean
     );
-    const rawWeight = mScore * aScore * sScore;
+    const rScore = regimeScoreForSource(row.sourceName, row.stationType, {
+      ...input.scenarioContext,
+      scenarioTag: input.scenarioContext.scenarioTag ?? scenario
+    });
+    const rawWeight = mScore * aScore * sScore * rScore;
     return {
       ...row,
       matchScore: mScore,
       accuracyScore: aScore,
       scenarioScore: sScore,
+      regimeScore: rScore,
       rawWeight,
       sourceSigma: sourceSigmaFromMae(row.mae)
     };
@@ -91,6 +99,7 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
     matchScore: Number(s.matchScore.toFixed(4)),
     accuracyScore: Number(s.accuracyScore.toFixed(4)),
     scenarioScore: Number(s.scenarioScore.toFixed(4)),
+    regimeScore: Number(s.regimeScore.toFixed(4)),
     finalWeight: Number(normWeights[i].toFixed(6))
   }));
 
@@ -106,6 +115,6 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
     explanation: ''
   };
 
-  output.explanation = buildFusionExplanation(output, scenarioLabel(input.scenarioContext));
+  output.explanation = buildFusionExplanation(output, scenario);
   return output;
 }
