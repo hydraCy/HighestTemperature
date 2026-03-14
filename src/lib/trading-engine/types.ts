@@ -4,7 +4,7 @@ export type Side = 'YES' | 'NO';
 export type BinInput = {
   label: string;
   marketPrice: number; // executable YES price
-  noMarketPrice?: number; // executable/approx NO price
+  noMarketPrice?: number; // executable NO ask price if available
   bestBid?: number;
 };
 

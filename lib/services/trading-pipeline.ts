@@ -399,6 +399,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         metNo?: number | null;
         weatherApi?: number | null;
         qWeather?: number | null;
+        spread?: number | null;
         fusedContinuous?: number | null;
         fusedAnchor?: number | null;
         fused?: number | null;
@@ -414,7 +415,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
   const modelCurrentTemp = isTargetDateToday
     ? (nowcasting?.currentTemp ?? weather.temperature2m)
     : weather.temperature2m;
-  // Decision should align with integer settlement bins for "highest temperature" markets.
+  // Decision summary uses settlement-aligned integer anchor.
   const modelMaxTemp = fusedAnchor;
   const modelTempRise1h = isTargetDateToday
     ? (nowcasting?.tempRise1h ?? weather.tempRise1h ?? 0)
@@ -435,18 +436,38 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     ? (nowcasting?.windSpeed ?? weather.windSpeed ?? 0)
     : (weather.windSpeed ?? 0);
   const todayMaxTemp = nowcasting?.todayMaxTemp ?? weather.maxTempSoFar;
+  const realizedMaxForTarget = isTargetDateToday
+    ? (todayMaxTemp ?? Number.NEGATIVE_INFINITY)
+    : Number.NEGATIVE_INFINITY;
+  const sourceSpread = sourceDailyMax?.spread;
+  const baseSigma = typeof sourceSpread === 'number' && Number.isFinite(sourceSpread)
+    ? Math.max(0.8, Math.min(2.6, 0.9 + sourceSpread * 0.35))
+    : 1.2;
+  const sigmaByScenario =
+    nowcasting?.scenarioTag === 'stable_sunny'
+      ? baseSigma * 0.9
+      : nowcasting?.scenarioTag === 'suppressed_heating'
+        ? baseSigma * 1.1
+        : baseSigma;
+  const modelSigma = Math.max(0.7, Math.min(2.8, sigmaByScenario));
 
   const probs = estimateBinProbabilities({
     bins: market.bins.map((b) => b.outcomeLabel),
     currentTemp: modelCurrentTemp,
-    maxTempSoFar: modelMaxTemp,
+    maxTempSoFar: realizedMaxForTarget,
     observedMaxTemp: todayMaxTemp,
+    forecastAnchorTemp: fusedAnchor,
+    isTargetDateToday,
+    futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
+    futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
+    futureTemp3h: nowcasting?.futureHours?.[2]?.temp,
     tempRise1h: modelTempRise1h,
     tempRise2h: modelTempRise2h,
     tempRise3h: modelTempRise3h,
     cloudCover: modelCloudCover,
     precipitationProb: modelPrecipProb,
-    windSpeed: modelWindSpeed
+    windSpeed: modelWindSpeed,
+    sigma: modelSigma
   });
 
   const decision = runTradingDecision({
@@ -520,6 +541,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         calibratedFusedTemp: fusedAnchor,
         fusedContinuous,
         fusedAnchor,
+        modelSigma,
         sourceCalibration: biasAdjusted?.breakdown ?? [],
         dailyDecision: {
           mode: 'realtime',

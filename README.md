@@ -167,6 +167,7 @@ See `.env.example`:
 - `MIN_UPSIDE_TO_TRADE`
 - `MIN_SIDE_PROB_TO_TRADE`
 - `TRADING_COST_PER_TRADE`
+- `NO_PRICE_FALLBACK_PENALTY` (penalty added when NO executable price is missing)
 - `SKIP_NEAR_CERTAIN_PRICE`
 - `MAX_TEMP_UPSHIFT_THRESHOLD`
 - `DECISION_POLICY`

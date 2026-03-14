@@ -111,3 +111,31 @@ test('late-session lock should avoid contrarian 13C NO recommendation', () => {
   assert.notEqual(`${out.recommendedBin}-${out.recommendedSide}`, '13°C-NO');
   assert.ok(out.riskFlags.includes('temperature_locked'));
 });
+
+test('should not recommend NO side when NO executable price is missing', () => {
+  const out = runTradingDecision({
+    now: new Date('2026-03-14T03:00:00Z'),
+    targetDate: new Date('2026-03-14T00:00:00+08:00'),
+    currentTemp: 15,
+    maxTempSoFar: 15,
+    tempRise1h: 0.2,
+    tempRise2h: 0.3,
+    tempRise3h: 0.4,
+    cloudCover: 25,
+    precipitationProb: 0,
+    windSpeed: 12,
+    bins: [
+      { label: '15°C', marketPrice: 0.22, bestBid: 0.21 },
+      { label: '16°C', marketPrice: 0.73, bestBid: 0.69 }
+    ],
+    probabilities: [0.8, 0.2],
+    resolutionReady: true,
+    weatherReady: true,
+    marketReady: true,
+    modelReady: true,
+    totalCapital: 10000,
+    maxSingleTradePercent: 0.1
+  });
+
+  assert.notEqual(out.recommendedSide, 'NO');
+});

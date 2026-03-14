@@ -437,7 +437,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw) ? Math.round(centerTempRaw) : null;
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
+  const highProbLabels = new Set(
+    allBins
+      .filter((b) => b.modelProbability >= 0.05)
+      .map((b) => b.label),
+  );
   const isFocusedBin = (label: string) => {
+    if (highProbLabels.has(label)) return true;
     if (focusMin == null || focusMax == null) return true;
     const p = parseTemperatureBin(label);
     if (p.min == null && p.max == null) return true;

@@ -36,7 +36,12 @@ function localDateKey(date: Date, tz: string) {
 export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shanghai'): TradingDecisionOutput {
   const { hour, minute } = localHourMinute(input.now, timezone);
   const isTargetDateToday = input.targetDate != null && localDateKey(input.targetDate, timezone) === localDateKey(input.now, timezone);
-  const isLateSession = hour >= 15;
+  const decimalHour = hour + minute / 60;
+  const learnedEndHour = Number.isFinite(input.learnedPeakWindowEndHour)
+    ? Number(input.learnedPeakWindowEndHour)
+    : 16;
+  const lockStartHour = Math.max(12.5, learnedEndHour - 1);
+  const isLateSession = decimalHour >= lockStartHour;
   const f1 = input.futureTemp1h;
   const f2 = input.futureTemp2h;
   const f3 = input.futureTemp3h;
@@ -67,13 +72,17 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     const modelYes = probs[idx] ?? 0;
     const modelNo = 1 - modelYes;
     const yesPrice = bin.marketPrice;
+    const hasExecutableNo = typeof bin.noMarketPrice === 'number' && Number.isFinite(bin.noMarketPrice);
     const fallbackNo = bin.bestBid != null ? 1 - bin.bestBid : 1 - yesPrice;
-    const noPrice = bin.noMarketPrice ?? fallbackNo;
+    const fallbackPenalty = Number(process.env.NO_PRICE_FALLBACK_PENALTY ?? '0.03');
+    const noPrice = hasExecutableNo
+      ? (bin.noMarketPrice as number)
+      : Math.min(0.999, Math.max(0.001, fallbackNo + fallbackPenalty));
     const edgeYes = calculateEdge(modelYes, yesPrice);
     const edgeNo = calculateEdge(modelNo, noPrice);
     const netEdgeYes = edgeYes - tradingCost;
     const netEdgeNo = edgeNo - tradingCost;
-    const bestSide: Side = netEdgeYes >= netEdgeNo ? 'YES' : 'NO';
+    const bestSide: Side = hasExecutableNo && netEdgeNo > netEdgeYes ? 'NO' : 'YES';
     const edge = bestSide === 'YES' ? netEdgeYes : netEdgeNo;
     return {
       outcomeLabel: bin.label,
@@ -85,6 +94,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
       edgeNo,
       netEdgeYes,
       netEdgeNo,
+      hasExecutableNo,
       bestSide,
       edge
     };
@@ -106,6 +116,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
       const chosenEntry = chosenSide === 'YES' ? o.marketPrice : o.noMarketPrice;
       const chosenProb = chosenSide === 'YES' ? o.modelProbability : o.modelNoProbability;
       const chosenNetEdge = (chosenSide === 'YES' ? o.netEdgeYes : o.netEdgeNo);
+      const chosenExecutable = chosenSide === 'YES' ? true : o.hasExecutableNo;
       const nearCertain = chosenEntry >= skipNearCertainPrice;
       return {
         ...o,
@@ -113,12 +124,13 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
         netEdge: chosenNetEdge,
         upside: 1 - chosenEntry,
         sideProbability: chosenProb,
+        sideExecutable: chosenExecutable,
         qualityScore: chosenNetEdge * chosenProb,
         lockTriggered,
         nearCertain
       };
     })
-    .filter((o) => o.netEdge >= minEdgeToTrade && o.upside >= minUpsideToTrade && o.sideProbability >= minSideProbToTrade && !o.nearCertain)
+    .filter((o) => o.sideExecutable && o.netEdge >= minEdgeToTrade && o.upside >= minUpsideToTrade && o.sideProbability >= minSideProbToTrade && !o.nearCertain)
     .sort((a, b) => b.qualityScore - a.qualityScore || b.netEdge - a.netEdge);
   const bestRaw = [...outputs].sort((a, b) => b.edge - a.edge)[0] ?? outputs[0];
   const lockFallback = lockTriggered && observedMax != null
