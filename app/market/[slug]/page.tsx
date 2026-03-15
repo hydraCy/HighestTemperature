@@ -1,9 +1,10 @@
 export const dynamic = 'force-dynamic';
 
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { format } from 'date-fns';
 import { SiteShell } from '@/components/layout/site-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { getMarketDetail } from '@/lib/services/query';
 import { NoteInput } from '@/components/market/note-input';
@@ -27,6 +28,18 @@ export default async function MarketDetailPage({
     lang === 'en'
       ? {
           pageTag: 'Shanghai / Market Detail',
+          dateTags: 'Date Tags',
+          gatePanel: 'Strategy Gates',
+          gateDate: 'Date Alignment',
+          gateFreshness: 'Weather Freshness',
+          gateSources: 'Source Completeness',
+          gateConsensus: 'Consensus Conflict',
+          gateSecondEntry: 'Second Entry Guard',
+          gatePass: 'PASS',
+          gateWarn: 'WARN',
+          gateBlock: 'BLOCK',
+          targetDate: 'Market Target Date',
+          shanghaiToday: 'Shanghai Today',
           warning: 'Warning: data may be incomplete',
           market: 'market',
           weather: 'weather',
@@ -95,6 +108,18 @@ export default async function MarketDetailPage({
         }
       : {
           pageTag: '上海 / 市场详情',
+          dateTags: '日期标签',
+          gatePanel: '策略门控状态',
+          gateDate: '日期一致性',
+          gateFreshness: '天气新鲜度',
+          gateSources: '数据源完整性',
+          gateConsensus: '主共识冲突',
+          gateSecondEntry: '二次入场保护',
+          gatePass: '通过',
+          gateWarn: '告警',
+          gateBlock: '阻断',
+          targetDate: '市场目标日期',
+          shanghaiToday: '上海当前日期',
           warning: '警告：数据可能不完整',
           market: '市场',
           weather: '天气',
@@ -165,6 +190,9 @@ export default async function MarketDetailPage({
   const { slug } = await params;
   const data = await getMarketDetail(slug);
   if (!data) return notFound();
+  if (!data.isLatestMarket && data.latestMarketSlug) {
+    redirect(`/market/${data.latestMarketSlug}?lang=${lang}`);
+  }
 
   const tempSeries = data.market.weatherSnapshots
     .slice()
@@ -244,6 +272,22 @@ export default async function MarketDetailPage({
     if (!Number.isFinite(ts)) return null;
     return Math.max(0, Math.round((Date.now() - ts) / 60000));
   })();
+  const toShanghaiDateKey = (date: Date) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(date);
+    const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '00';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '00';
+    return `${y}-${m}-${d}`;
+  };
+  const shanghaiTodayKey = toShanghaiDateKey(new Date());
+  const riskSet = new Set(fromJsonString<string[]>(latestRun?.riskFlagsJson, []));
+  const marketTargetDateKey = format(data.market.targetDate, 'yyyy-MM-dd');
+  const isDateAligned = !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   const isWeatherStale = weatherFreshnessMinutes != null
     && Number.isFinite(weatherStaleThresholdMinutes)
@@ -266,6 +310,25 @@ export default async function MarketDetailPage({
           <h1 className="text-xl font-semibold">{data.market.marketTitle}</h1>
         </div>
       </div>
+      <Card>
+        <CardHeader><CardTitle>{t.dateTags}</CardTitle></CardHeader>
+        <CardContent className="grid gap-2 text-sm md:grid-cols-4">
+          <p>{t.targetDate}: {format(data.market.targetDate, 'yyyy-MM-dd')}</p>
+          <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
+          <p>{t.shanghaiToday}: {shanghaiTodayKey}</p>
+          <p>{t.settlementTime}: {data.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>{t.gatePanel}</CardTitle></CardHeader>
+        <CardContent className="grid gap-2 text-sm md:grid-cols-2">
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateDate}</span><Badge variant={isDateAligned ? 'success' : 'destructive'}>{isDateAligned ? t.gatePass : t.gateBlock}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateFreshness}</span><Badge variant={isWeatherStale ? 'destructive' : 'success'}>{isWeatherStale ? t.gateBlock : t.gatePass}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateSources}</span><Badge variant={strictReady ? 'success' : 'destructive'}>{strictReady ? t.gatePass : t.gateBlock}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateConsensus}</span><Badge variant={riskSet.has('market_consensus_conflict') ? 'warning' : 'success'}>{riskSet.has('market_consensus_conflict') ? t.gateWarn : t.gatePass}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1 md:col-span-2"><span>{t.gateSecondEntry}</span><Badge variant={riskSet.has('second_entry_guard') ? 'warning' : 'success'}>{riskSet.has('second_entry_guard') ? t.gateWarn : t.gatePass}</Badge></div>
+        </CardContent>
+      </Card>
 
       {(data.marketSource !== 'api' || data.weatherSource !== 'api' || weatherErrors.length > 0 || !strictReady || isWeatherStale) && (
         <Card className="border-amber-500/30">

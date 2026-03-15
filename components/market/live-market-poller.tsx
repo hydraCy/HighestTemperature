@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 
@@ -91,7 +91,7 @@ export function LiveMarketPoller({
     }
   }
 
-  async function doSync() {
+  const doSync = useCallback(async () => {
     if (syncing) return;
     setSyncing(true);
     try {
@@ -105,7 +105,7 @@ export function LiveMarketPoller({
     } finally {
       setSyncing(false);
     }
-  }
+  }, [router, syncing, t.err]);
 
   useEffect(() => {
     if (!running) return;
@@ -114,7 +114,7 @@ export function LiveMarketPoller({
       void doSync();
     }, 45_000);
     return () => clearInterval(id);
-  }, [running]);
+  }, [doSync, running]);
 
   return (
     <div className="rounded border border-border/60 px-3 py-2 text-xs">

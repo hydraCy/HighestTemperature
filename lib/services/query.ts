@@ -96,6 +96,11 @@ export async function getMarketDetail(slug: string) {
   });
 
   if (!market) return null;
+  const latestMarket = await prisma.market.findFirst({
+    where: SHANGHAI_TEMP_MARKET_WHERE,
+    orderBy: [{ isActive: 'desc' }, { targetDate: 'desc' }, { updatedAt: 'desc' }],
+    select: { marketSlug: true, targetDate: true }
+  });
   const marketStatus = marketStatusOf(market);
   const biasStats = await prisma.forecastSourceBias.groupBy({
     by: ['sourceCode', 'sourceGroup'],
@@ -113,6 +118,8 @@ export async function getMarketDetail(slug: string) {
     weatherSource: fromJsonString<{ source?: string }>(market.weatherSnapshots[0]?.rawJson, {}).source ?? 'unknown',
     snapshots: market.snapshots,
     settled: market.settledResult,
-    biasStats
+    biasStats,
+    latestMarketSlug: latestMarket?.marketSlug ?? null,
+    isLatestMarket: latestMarket?.marketSlug === market.marketSlug
   };
 }

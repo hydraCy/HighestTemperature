@@ -43,6 +43,9 @@ export type TradingInput = {
   windSpeed: number;
   weatherMaturityScore?: number;
   scenarioTag?: string;
+  marketConsensusBin?: string;
+  marketConsensusPrice?: number;
+  entryCountForTargetDate?: number;
   bins: BinInput[];
   probabilities: number[];
   resolutionReady: boolean;

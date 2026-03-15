@@ -70,26 +70,13 @@ export async function fetchShanghaiMarket(): Promise<{ data: ShanghaiMarketPaylo
 
   try {
     const errors: string[] = [];
-    let best: { payload: ShanghaiMarketPayload; score: number } | null = null;
-    let manualMatch: ShanghaiMarketPayload | null = null;
+    const allCandidates: ShanghaiMarketPayload[] = [];
     for (const url of urls) {
       try {
         const json = await fetchJsonWithCurlFallback(url, timeoutMs);
         const candidates = buildPayloadCandidatesFromApi(json, { fallbackSlug: manualEventSlug ?? autoTodaySlugs[0] ?? null });
-        if (manualEventSlug) {
-          const exact = candidates.find((c) => c.marketSlug === manualEventSlug);
-          if (exact) manualMatch = exact;
-        }
         if (candidates.length) {
-          const candidate = pickByTradingDayPriority(candidates, {
-            todayKey,
-            tomorrowKey,
-            manualEventSlug,
-            now,
-            rolloverWindowMinutes
-          });
-          const score = scorePayload(candidate, { todayKey, tomorrowKey, manualEventSlug });
-          if (!best || score > best.score) best = { payload: candidate, score };
+          allCandidates.push(...candidates);
           continue;
         }
         errors.push(`${url} -> 未找到上海最高温盘口`);
@@ -98,14 +85,17 @@ export async function fetchShanghaiMarket(): Promise<{ data: ShanghaiMarketPaylo
       }
     }
 
-    if (manualMatch) {
-      return { source: 'api', data: manualMatch };
-    }
-
-    if (!best) {
+    if (!allCandidates.length) {
       throw new Error(errors.join(' | '));
     }
-    return { source: 'api', data: best.payload };
+    const chosen = pickByTradingDayPriority(allCandidates, {
+      todayKey,
+      tomorrowKey,
+      manualEventSlug,
+      now,
+      rolloverWindowMinutes
+    });
+    return { source: 'api', data: chosen };
   } catch (error) {
     throw new Error(`Polymarket 实时数据获取失败：${formatFetchError(error)}`);
   }
@@ -375,13 +365,6 @@ function pickBestDate(dates: Date[], targetDateKey: string) {
   if (exact) return exact;
   const targetMid = new Date(`${targetDateKey}T12:00:00+08:00`).getTime();
   return [...valid].sort((a, b) => Math.abs(a.getTime() - targetMid) - Math.abs(b.getTime() - targetMid))[0];
-}
-
-function tomorrowInShanghai() {
-  const now = new Date();
-  const local = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-  local.setDate(local.getDate() + 1);
-  return local;
 }
 
 function todayInShanghai() {

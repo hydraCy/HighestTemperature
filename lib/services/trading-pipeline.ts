@@ -56,6 +56,7 @@ function shanghaiDayRangeUtc(dateKey: string) {
 
 async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
   wundergroundDaily?: number | null;
+  nwsHourly?: number | null;
   openMeteo?: number | null;
   wttr?: number | null;
   metNo?: number | null;
@@ -64,6 +65,8 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
   fused?: number | null;
 } | null) {
   if (!sourceDailyMax) return null;
+  const enableBiasCalibration = (process.env.ENABLE_BIAS_CALIBRATION ?? 'false').toLowerCase() === 'true';
+  if (!enableBiasCalibration) return null;
   const lookbackDays = Number(process.env.BIAS_LOOKBACK_DAYS ?? '30');
   const minTotalSamples = Number(process.env.BIAS_MIN_TOTAL_SAMPLES ?? '10');
   const minSourceSamples = Number(process.env.BIAS_MIN_SOURCE_SAMPLES ?? '3');
@@ -82,7 +85,7 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
   const byCode = new Map(stats.map((s) => [s.sourceCode, s]));
   const rows = [
     { code: 'wunderground_daily', raw: sourceDailyMax.wundergroundDaily },
-    { code: 'open_meteo', raw: sourceDailyMax.openMeteo },
+    { code: 'nws_hourly', raw: sourceDailyMax.nwsHourly ?? sourceDailyMax.openMeteo },
     { code: 'wttr', raw: sourceDailyMax.wttr },
     { code: 'met_no', raw: sourceDailyMax.metNo },
     { code: 'weatherapi', raw: sourceDailyMax.weatherApi },
@@ -127,6 +130,7 @@ async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: D
   const weatherFeatures = fromJsonString<{
     sourceDailyMax?: {
       wundergroundDaily?: number | null;
+      nwsHourly?: number | null;
       openMeteo?: number | null;
       wttr?: number | null;
       metNo?: number | null;
@@ -140,7 +144,7 @@ async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: D
 
   const rows = [
     { sourceCode: 'wunderground_daily', sourceGroup: 'free', predictedMax: max.wundergroundDaily },
-    { sourceCode: 'open_meteo', sourceGroup: 'free', predictedMax: max.openMeteo },
+    { sourceCode: 'nws_hourly', sourceGroup: 'free', predictedMax: max.nwsHourly ?? max.openMeteo },
     { sourceCode: 'wttr', sourceGroup: 'free', predictedMax: max.wttr },
     { sourceCode: 'met_no', sourceGroup: 'free', predictedMax: max.metNo },
     { sourceCode: 'weatherapi', sourceGroup: 'paid', predictedMax: max.weatherApi },
@@ -191,6 +195,8 @@ function enforceStrictWeatherSourceGate(
       strictRequiredSources?: string[];
       missingSources?: string[];
       openMeteo?: string | null;
+      nwsHourly?: string | null;
+      aviationweather?: string | null;
       wttr?: string | null;
       metNo?: string | null;
       weatherapi?: string | null;
@@ -198,6 +204,7 @@ function enforceStrictWeatherSourceGate(
       sourceDailyMax?: {
         wundergroundDaily?: number | null;
         openMeteo?: number | null;
+        nwsHourly?: number | null;
         wttr?: number | null;
         metNo?: number | null;
         weatherApi?: number | null;
@@ -210,16 +217,18 @@ function enforceStrictWeatherSourceGate(
   const meta = weatherRaw.raw ?? {};
   const requiredFromMeta = Array.isArray(meta.strictRequiredSources) ? meta.strictRequiredSources : [];
   const statusMap: Record<string, boolean> = {
-    open_meteo: meta.openMeteo === 'ok',
+    aviationweather: meta.aviationweather === 'ok',
+    nws_hourly: (meta.nwsHourly ?? meta.openMeteo) === 'ok',
     wttr: meta.wttr === 'ok',
     met_no: meta.metNo === 'ok',
     weatherapi: meta.weatherapi === 'ok',
     qweather: meta.qweather === 'ok'
   };
   const sourceDailyMax = meta.sourceDailyMax;
+  const requiresNws = requiredFromMeta.includes('nws_hourly');
   const inferredMissing = [
     sourceDailyMax?.wundergroundDaily == null ? 'wunderground_daily' : null,
-    sourceDailyMax?.openMeteo == null ? 'open_meteo' : null,
+    (requiresNws && (sourceDailyMax?.nwsHourly ?? sourceDailyMax?.openMeteo) == null) ? 'nws_hourly' : null,
     sourceDailyMax?.wttr == null ? 'wttr' : null,
     sourceDailyMax?.metNo == null ? 'met_no' : null,
     (sourceDailyMax?.weatherApi == null && sourceDailyMax?.qWeather == null && sourceDailyMax?.cmaChina == null) ? 'weatherapi' : null
@@ -277,6 +286,35 @@ function enforceWeatherFreshnessGate(
   const zh = `天气数据新鲜度不足（已过 ${staleRounded} 分钟，阈值 ${maxStaleMinutes} 分钟），系统禁止给出交易推荐，强制 PASS，仓位为 0。`;
   const en = `Weather data is stale (${staleRounded} min old, threshold ${maxStaleMinutes} min). Trading recommendation is blocked, forced PASS with zero position.`;
   const mergedFlags = Array.from(new Set([...(decision.riskFlags ?? []), 'weather_data_stale', 'low_data_quality']));
+  return {
+    ...decision,
+    decision: 'PASS' as const,
+    tradeScore: 0,
+    positionSize: 0,
+    riskFlags: mergedFlags,
+    reasonZh: zh,
+    reasonEn: en,
+    reason: `${zh}\nEN: ${en}`
+  };
+}
+
+function enforceDateAlignmentGate(
+  decision: ReturnType<typeof runTradingDecision>,
+  marketTargetDate: Date,
+  weatherRawJson: string | null
+) {
+  const weatherRaw = fromJsonString<{
+    raw?: {
+      targetDate?: string;
+    };
+  }>(weatherRawJson, {});
+  const weatherTargetDate = weatherRaw.raw?.targetDate ?? null;
+  const marketTargetKey = shanghaiDateKey(marketTargetDate);
+  if (!weatherTargetDate || weatherTargetDate === marketTargetKey) return decision;
+
+  const zh = `检测到目标日不一致：market=${marketTargetKey}, weather=${weatherTargetDate}。系统禁止给出交易推荐，强制 PASS，仓位为 0。`;
+  const en = `Target date mismatch detected: market=${marketTargetKey}, weather=${weatherTargetDate}. Trading recommendation is blocked, forced PASS with zero position.`;
+  const mergedFlags = Array.from(new Set([...(decision.riskFlags ?? []), 'weather_market_date_mismatch', 'low_data_quality']));
   return {
     ...decision,
     decision: 'PASS' as const,
@@ -411,6 +449,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
 
   const weather = market.weatherSnapshots[0];
   if (!weather || !market.bins.length) return null;
+  const priorBuyCount = await prisma.modelRun.count({
+    where: { marketId: market.id, decision: 'BUY' }
+  });
   const weatherRaw = fromJsonString<{
     raw?: {
       sourceDailyMax?: { fused?: number | null };
@@ -436,8 +477,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     };
   }>(weather.rawJson, {});
   const sourceDailyMax = weatherRaw.raw?.sourceDailyMax as
-    | {
+      | {
         wundergroundDaily?: number | null;
+        nwsHourly?: number | null;
         openMeteo?: number | null;
         wttr?: number | null;
         metNo?: number | null;
@@ -548,6 +590,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     windSpeed: modelWindSpeed,
     weatherMaturityScore: nowcasting?.weatherMaturityScore,
     scenarioTag: nowcasting?.scenarioTag,
+    marketConsensusBin: market.bins.slice().sort((a, b) => b.marketPrice - a.marketPrice)[0]?.outcomeLabel,
+    marketConsensusPrice: market.bins.slice().sort((a, b) => b.marketPrice - a.marketPrice)[0]?.marketPrice,
+    entryCountForTargetDate: priorBuyCount,
     bins: market.bins.map((b) => ({
       label: b.outcomeLabel,
       marketPrice: b.marketPrice,
@@ -562,7 +607,8 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     totalCapital,
     maxSingleTradePercent
   });
-  const freshnessGatedDecision = enforceWeatherFreshnessGate(decision, weather.rawJson);
+  const alignmentGatedDecision = enforceDateAlignmentGate(decision, market.targetDate, weather.rawJson);
+  const freshnessGatedDecision = enforceWeatherFreshnessGate(alignmentGatedDecision, weather.rawJson);
   const strictDecision = enforceStrictWeatherSourceGate(freshnessGatedDecision, weather.rawJson);
   const finalDecision = {
     ...strictDecision,
@@ -639,7 +685,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         windSpeed: weather.windSpeed,
         nowcasting: weatherRaw.raw?.nowcasting ?? null,
         sourceDailyMax: fromJsonString<{ raw?: { sourceDailyMax?: unknown } }>(weather.rawJson, {}).raw?.sourceDailyMax ?? null,
-        sourceStatus: fromJsonString<{ raw?: { openMeteo?: string | null; wttr?: string | null; metNo?: string | null; weatherapi?: string | null; qweather?: string | null } }>(weather.rawJson, {}).raw ?? null
+        sourceStatus: fromJsonString<{ raw?: { nwsHourly?: string | null; openMeteo?: string | null; wttr?: string | null; metNo?: string | null; weatherapi?: string | null; qweather?: string | null } }>(weather.rawJson, {}).raw ?? null
       }),
       modelOutputJson: toJsonString(modelRun.outputs),
       tradingOutputJson: toJsonString(finalDecision),

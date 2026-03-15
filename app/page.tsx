@@ -17,6 +17,18 @@ import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
 type PageSearchParams = Promise<{ lang?: string | string[] }>;
 
 export default async function HomePage({ searchParams }: { searchParams: PageSearchParams }) {
+  const toShanghaiDateKey = (date: Date) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(date);
+    const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '00';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '00';
+    return `${y}-${m}-${d}`;
+  };
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
   const t =
@@ -24,6 +36,19 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       ? {
           mode: 'Research Mode',
           title: 'Decision / Position / Reason',
+          dateTags: 'Date Tags',
+          gatePanel: 'Strategy Gates',
+          gateName: 'Gate',
+          gateStatus: 'Status',
+          gateDate: 'Date Alignment',
+          gateFreshness: 'Weather Freshness',
+          gateSources: 'Source Completeness',
+          gateConsensus: 'Consensus Conflict',
+          gateSecondEntry: 'Second Entry Guard',
+          gatePass: 'PASS',
+          gateWarn: 'WARN',
+          gateBlock: 'BLOCK',
+          shanghaiToday: 'Shanghai Today',
           city: 'Shanghai',
           warningPrefix: 'Warning: data may be incomplete',
           warningMarket: 'market',
@@ -55,7 +80,6 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           statusFetchError: 'fetch_error',
           statusParseError: 'parse_error',
           statusSkipped: 'skipped',
-          statusFallbackProxy: 'fallback_proxy',
           settlementTime: 'Settlement Time',
           minsToSettlement: 'Minutes to Settlement',
           mins: 'min',
@@ -106,7 +130,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           apiWuRealtime: 'Wunderground Realtime (ZSPD)',
           apiWuDaily: 'Wunderground Daily Max',
           apiWuHistory: 'Wunderground 30d History',
-          apiOpenMeteo: 'Open-Meteo',
+          apiAviation: 'AviationWeather (METAR/TAF)',
           apiWttr: 'wttr',
           apiMetNo: 'met.no',
           apiWeatherApi: 'WeatherAPI',
@@ -183,6 +207,19 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       : {
           mode: '研究模式',
           title: '决策 / 仓位 / 理由',
+          dateTags: '日期标签',
+          gatePanel: '策略门控状态',
+          gateName: '门控项',
+          gateStatus: '状态',
+          gateDate: '日期一致性',
+          gateFreshness: '天气新鲜度',
+          gateSources: '数据源完整性',
+          gateConsensus: '主共识冲突',
+          gateSecondEntry: '二次入场保护',
+          gatePass: '通过',
+          gateWarn: '告警',
+          gateBlock: '阻断',
+          shanghaiToday: '上海当前日期',
           city: '上海（Shanghai）',
           warningPrefix: '警告：当前数据可能不完整',
           warningMarket: '市场',
@@ -214,7 +251,6 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           statusFetchError: '拉取失败',
           statusParseError: '解析失败',
           statusSkipped: '未启用',
-          statusFallbackProxy: '代理回填',
           settlementTime: '结算时间',
           minsToSettlement: '距结算',
           mins: '分钟',
@@ -265,7 +301,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           apiWuRealtime: 'Wunderground 实时(ZSPD)',
           apiWuDaily: 'Wunderground 次日最高温',
           apiWuHistory: 'Wunderground 30天历史',
-          apiOpenMeteo: 'Open-Meteo',
+          apiAviation: 'AviationWeather（METAR/TAF）',
           apiWttr: 'wttr',
           apiMetNo: 'met.no',
           apiWeatherApi: 'WeatherAPI',
@@ -347,7 +383,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const weatherErrors = weatherRaw.raw?.errors ?? [];
   const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
   const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
-  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { wundergroundDaily?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
+  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { wundergroundDaily?: number | null; nwsHourly?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
   const apiStatusMap = (weatherRaw.raw as {
     apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean }>;
   } | undefined)?.apiStatus ?? {};
@@ -395,6 +431,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     if (!Number.isFinite(ts)) return null;
     return Math.max(0, Math.round((Date.now() - ts) / 60000));
   })();
+  const isTargetDateToday = data?.market?.targetDate
+    ? toShanghaiDateKey(new Date(data.market.targetDate)) === toShanghaiDateKey(new Date())
+    : false;
+  const shanghaiTodayKey = toShanghaiDateKey(new Date());
+  const riskSet = new Set(data?.latestDecision?.riskFlags ?? []);
+  const marketTargetDateKey = data?.market?.targetDate ? format(data.market.targetDate, 'yyyy-MM-dd') : null;
+  const isDateAligned = !marketTargetDateKey || !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   const isWeatherStale = weatherFreshnessMinutes != null
     && Number.isFinite(weatherStaleThresholdMinutes)
@@ -411,14 +454,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     if (s === 'fetch_error') return t.statusFetchError;
     if (s === 'parse_error') return t.statusParseError;
     if (s === 'skipped') return t.statusSkipped;
-    if (s === 'fallback_proxy') return t.statusFallbackProxy;
     return s ?? '-';
   };
   const apiRows = [
     { code: 'wunderground', label: t.apiWuRealtime },
     { code: 'wunderground_daily', label: t.apiWuDaily },
     { code: 'wunderground_history', label: t.apiWuHistory },
-    { code: 'open_meteo', label: t.apiOpenMeteo },
+    { code: 'aviationweather', label: t.apiAviation },
     { code: 'wttr', label: t.apiWttr },
     { code: 'met_no', label: t.apiMetNo },
     { code: 'weatherapi', label: t.apiWeatherApi },
@@ -566,6 +608,25 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         marketUpdatedAt={marketUpdatedAtIso}
         weatherUpdatedAt={weatherFetchedAt ?? weatherObservedAt ?? null}
       />
+      <Card>
+        <CardHeader><CardTitle>{t.dateTags}</CardTitle></CardHeader>
+        <CardContent className="grid gap-2 text-sm md:grid-cols-4">
+          <p>{t.targetDate}: {data?.market?.targetDate ? format(data.market.targetDate, 'yyyy-MM-dd') : '-'}</p>
+          <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
+          <p>{t.shanghaiToday}: {shanghaiTodayKey}</p>
+          <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>{t.gatePanel}</CardTitle></CardHeader>
+        <CardContent className="grid gap-2 text-sm md:grid-cols-2">
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateDate}</span><Badge variant={isDateAligned ? 'success' : 'destructive'}>{isDateAligned ? t.gatePass : t.gateBlock}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateFreshness}</span><Badge variant={isWeatherStale ? 'destructive' : 'success'}>{isWeatherStale ? t.gateBlock : t.gatePass}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateSources}</span><Badge variant={strictReady ? 'success' : 'destructive'}>{strictReady ? t.gatePass : t.gateBlock}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateConsensus}</span><Badge variant={riskSet.has('market_consensus_conflict') ? 'warning' : 'success'}>{riskSet.has('market_consensus_conflict') ? t.gateWarn : t.gatePass}</Badge></div>
+          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1 md:col-span-2"><span>{t.gateSecondEntry}</span><Badge variant={riskSet.has('second_entry_guard') ? 'warning' : 'success'}>{riskSet.has('second_entry_guard') ? t.gateWarn : t.gatePass}</Badge></div>
+        </CardContent>
+      </Card>
 
       {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale) && (
         <Card className="border-amber-500/30">
@@ -604,7 +665,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <p>{t.precision}: {data?.market.resolutionMetadata?.precisionRule ?? '-'}</p>
           <p>{t.finalizeRule}: {data?.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
           <p>{t.marketSource}: <span className={data?.marketSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.marketSource)}</span></p>
-          <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Wunderground + Open-Meteo + wttr.in + met.no）</span></p>
+          <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Wunderground + AviationWeather + wttr.in + met.no）</span></p>
           <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
           <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
           <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
@@ -620,7 +681,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         <CardContent className="space-y-2 text-sm">
           <div className="grid gap-2 md:grid-cols-3">
             <p>{t.currentTemp}: {nowcasting?.currentTemp != null ? `${nowcasting.currentTemp.toFixed(1)}°C` : '-'}</p>
-            <p>{t.todayObservedMax}: {nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
+            <p>{t.todayObservedMax}: {isTargetDateToday && nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
             <p>{t.rise123h}: {nowcasting?.tempRise1h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise2h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise3h?.toFixed(2) ?? '-'}</p>
             <p>{t.cloudCover}: {nowcasting?.cloudCover != null ? `${nowcasting.cloudCover.toFixed(0)}%` : '-'}</p>
             <p>{t.precipProb}: {nowcasting?.precipitationProb != null ? `${nowcasting.precipitationProb.toFixed(0)}%` : '-'}</p>
@@ -730,7 +791,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.todayObservedMax}</p>
-                <p className="text-lg font-semibold">{nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
+                <p className="text-lg font-semibold">{isTargetDateToday && nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.sourceSpread}</p>
@@ -754,7 +815,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="rounded border border-border/60 p-2 text-xs space-y-1">
               <p className="font-medium">{t.sourceBreakdown}</p>
               <p>
-                <span className="text-muted-foreground">{t.freeSources}</span> | Wunderground {sourceDailyMax?.wundergroundDaily != null ? `${Math.round(sourceDailyMax.wundergroundDaily)}°C` : '-'} / Open‑Meteo {sourceDailyMax?.openMeteo != null ? `${Math.round(sourceDailyMax.openMeteo)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${Math.round(sourceDailyMax.wttr)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${Math.round(sourceDailyMax.metNo)}°C` : '-'}
+                <span className="text-muted-foreground">{t.freeSources}</span> | Wunderground {sourceDailyMax?.wundergroundDaily != null ? `${Math.round(sourceDailyMax.wundergroundDaily)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${Math.round(sourceDailyMax.wttr)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${Math.round(sourceDailyMax.metNo)}°C` : '-'}
               </p>
               <p>
                 <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${Math.round(sourceDailyMax.weatherApi)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${Math.round((sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) ?? 0)}°C` : '-'}

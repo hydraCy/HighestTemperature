@@ -171,3 +171,63 @@ test('global mutually-exclusive constraint should force only target-bin YES', ()
   assert.equal(by.get('16°C'), 'NO');
   assert.equal(by.get('17°C'), 'NO');
 });
+
+test('strong market consensus conflict should downgrade BUY to WATCH', () => {
+  const out = runTradingDecision({
+    now: new Date('2026-03-15T03:00:00Z'),
+    targetDate: new Date('2026-03-15T00:00:00+08:00'),
+    currentTemp: 14,
+    maxTempSoFar: 14,
+    tempRise1h: 0.2,
+    tempRise2h: 0.4,
+    tempRise3h: 0.5,
+    cloudCover: 20,
+    precipitationProb: 0,
+    windSpeed: 9,
+    marketConsensusBin: '15°C',
+    marketConsensusPrice: 0.82,
+    bins: [
+      { label: '15°C', marketPrice: 0.2, noMarketPrice: 0.82 },
+      { label: '16°C', marketPrice: 0.8, noMarketPrice: 0.22 }
+    ],
+    probabilities: [0.7, 0.3],
+    resolutionReady: true,
+    weatherReady: true,
+    marketReady: true,
+    modelReady: true,
+    totalCapital: 10000,
+    maxSingleTradePercent: 0.1
+  });
+  assert.equal(out.decision, 'WATCH');
+  assert.equal(out.positionSize, 0);
+  assert.ok(out.riskFlags.includes('market_consensus_conflict'));
+});
+
+test('second-entry guard should tighten threshold and block marginal trade', () => {
+  const out = runTradingDecision({
+    now: new Date('2026-03-15T03:00:00Z'),
+    targetDate: new Date('2026-03-15T00:00:00+08:00'),
+    currentTemp: 14,
+    maxTempSoFar: 14,
+    tempRise1h: 0.2,
+    tempRise2h: 0.4,
+    tempRise3h: 0.5,
+    cloudCover: 20,
+    precipitationProb: 0,
+    windSpeed: 9,
+    entryCountForTargetDate: 1,
+    bins: [
+      { label: '15°C', marketPrice: 0.47, noMarketPrice: 0.54 },
+      { label: '16°C', marketPrice: 0.2, noMarketPrice: 0.82 }
+    ],
+    probabilities: [0.53, 0.47],
+    resolutionReady: true,
+    weatherReady: true,
+    marketReady: true,
+    modelReady: true,
+    totalCapital: 10000,
+    maxSingleTradePercent: 0.1
+  });
+  assert.equal(out.decision, 'PASS');
+  assert.ok(out.riskFlags.includes('second_entry_guard'));
+});

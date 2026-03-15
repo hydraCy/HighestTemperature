@@ -166,6 +166,9 @@ See `.env.example`:
 - `MIN_EDGE_TO_TRADE`
 - `MIN_UPSIDE_TO_TRADE`
 - `MIN_SIDE_PROB_TO_TRADE`
+- `SECOND_ENTRY_MIN_EDGE` (stricter edge threshold when there is already a prior BUY on the same target market)
+- `SECOND_ENTRY_MIN_PROB` (stricter probability threshold for second entry)
+- `MARKET_CONSENSUS_STRONG_PRICE` (if market consensus price exceeds this and conflicts with model side, BUY is downgraded to WATCH)
 - `TRADING_COST_PER_TRADE`
 - `NO_PRICE_FALLBACK_PENALTY` (penalty added when NO executable price is missing)
 - `WEATHER_STALE_MINUTES` (hard freshness gate; if latest weather is older than this threshold, decision is forced to `PASS`)
@@ -173,10 +176,13 @@ See `.env.example`:
 - `MAX_TEMP_UPSHIFT_THRESHOLD`
 - `DECISION_POLICY`
 - `WEATHER_STRICT_SOURCES`
-- `FUSION_EXCLUDED_SOURCES` (exclude sources from fusion weighting; default excludes `open_meteo`)
+- `ENABLE_NWS_HOURLY` (default `false`; NWS coverage is mainly for US gridpoints)
+- `FUSION_EXCLUDED_SOURCES` (exclude sources from fusion weighting; default excludes `nws_hourly`)
 - `BIAS_LOOKBACK_DAYS`
 - `BIAS_MIN_TOTAL_SAMPLES`
 - `BIAS_MIN_SOURCE_SAMPLES`
+- `ENABLE_BIAS_CALIBRATION` (default `false`; keep off until enough settled samples are accumulated)
+- `ENABLE_FUSION_CALIBRATION` (default `false`; keep off until enough settled samples are accumulated)
 - `FUSION_CALIBRATION_LOOKBACK_DAYS` (lookback window for fusion calibration rows)
 - `FUSION_CALIBRATION_BUCKET_MIN_SAMPLES` (minimum sample size for scenario/time bucket override)
 - `WEATHERAPI_KEY` (optional)
@@ -191,7 +197,7 @@ The platform is configured for real data (no fake fallback for core decision out
 - Polymarket market APIs
 - Wunderground/Weather.com real-time observations + 1-3h nowcasting (ZSPD) as primary short-term decision input
 - Learned peak-temperature window from latest 30-day ZSPD history (used by timing score)
-- Free weather sources: Open-Meteo / wttr.in / met.no
+- Free weather sources: AviationWeather / wttr.in / met.no (NWS Hourly optional, disabled by default)
 - Optional paid weather sources: WeatherAPI / QWeather
 - Wunderground/Weather.com historical observations for settlement sync
 
@@ -236,7 +242,7 @@ Run:
 npm run compare:openmeteo-wu
 ```
 
-This script now reports rolling 30-day bias stats for all configured sources (`open_meteo`, `wttr`, `met_no`, `weatherapi`, `qweather`) using stored settlement comparisons, including:
+This script now reports rolling 30-day bias stats for all configured sources (`nws_hourly`, `wttr`, `met_no`, `weatherapi`, `qweather`) using stored settlement comparisons, including:
 
 - sample size
 - mean bias

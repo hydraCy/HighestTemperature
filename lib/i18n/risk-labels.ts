@@ -11,11 +11,14 @@ const RISK_LABELS: Record<string, { zh: string; en: string }> = {
   market_inactive: { zh: '市场非活跃', en: 'Market Inactive' },
   weather_source_incomplete: { zh: '天气源不完整', en: 'Weather Sources Incomplete' },
   weather_data_stale: { zh: '天气数据过期', en: 'Weather Data Stale' },
+  weather_market_date_mismatch: { zh: '市场与天气目标日不一致', en: 'Market/Weather Date Mismatch' },
   low_data_quality: { zh: '低数据质量', en: 'Low Data Quality' },
   low_weather_maturity: { zh: '短临成熟度低', en: 'Low Weather Maturity' },
   suppressed_heating: { zh: '压温场景', en: 'Suppressed Heating Scenario' },
   market_already_priced: { zh: '市场已充分定价', en: 'Market Already Priced' },
-  temperature_locked: { zh: '温度已接近锁定', en: 'Temperature Locked' }
+  temperature_locked: { zh: '温度已接近锁定', en: 'Temperature Locked' },
+  market_consensus_conflict: { zh: '与盘口主共识冲突', en: 'Conflict With Market Consensus' },
+  second_entry_guard: { zh: '二次入场保护', en: 'Second Entry Guard' }
 };
 
 export function riskLabel(code: string, lang: Lang) {

@@ -70,8 +70,14 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const minEdgeToTrade = Number(process.env.MIN_EDGE_TO_TRADE ?? '0.03');
   const minUpsideToTrade = Number(process.env.MIN_UPSIDE_TO_TRADE ?? '0.05');
   const minSideProbToTrade = Number(process.env.MIN_SIDE_PROB_TO_TRADE ?? '0.55');
+  const secondEntryMinEdge = Number(process.env.SECOND_ENTRY_MIN_EDGE ?? '0.06');
+  const secondEntryMinProb = Number(process.env.SECOND_ENTRY_MIN_PROB ?? '0.62');
+  const consensusStrongPrice = Number(process.env.MARKET_CONSENSUS_STRONG_PRICE ?? '0.65');
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
   const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.97');
+  const hasPriorEntry = (input.entryCountForTargetDate ?? 0) >= 1;
+  const effectiveMinEdge = hasPriorEntry ? Math.max(minEdgeToTrade, secondEntryMinEdge) : minEdgeToTrade;
+  const effectiveMinSideProb = hasPriorEntry ? Math.max(minSideProbToTrade, secondEntryMinProb) : minSideProbToTrade;
 
   const outputs = input.bins.map((bin, idx) => {
     const parsed = parseTemperatureBin(bin.label);
@@ -133,7 +139,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
         nearCertain
       };
     })
-    .filter((o) => o.sideExecutable && o.netEdge >= minEdgeToTrade && o.upside >= minUpsideToTrade && o.sideProbability >= minSideProbToTrade && !o.nearCertain)
+    .filter((o) => o.sideExecutable && o.netEdge >= effectiveMinEdge && o.upside >= minUpsideToTrade && o.sideProbability >= effectiveMinSideProb && !o.nearCertain)
     .sort((a, b) => b.qualityScore - a.qualityScore || b.netEdge - a.netEdge);
   const bestRaw = [...outputs].sort((a, b) => b.edge - a.edge)[0] ?? outputs[0];
   const lockFallback = lockTriggered
@@ -216,6 +222,16 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   let decision: TradingDecisionOutput['decision'] =
     tradeScore < 60 ? 'PASS' : tradeScore <= 75 ? 'WATCH' : 'BUY';
   if (!candidates.length) decision = 'PASS';
+  const hasStrongMarketConsensus = (input.marketConsensusPrice ?? 0) >= consensusStrongPrice;
+  const isConsensusConflict = Boolean(
+    best &&
+      hasStrongMarketConsensus &&
+      input.marketConsensusBin &&
+      best.outcomeLabel !== input.marketConsensusBin
+  );
+  if (decision === 'BUY' && isConsensusConflict) {
+    decision = 'WATCH';
+  }
   const decisionZh = decision === 'BUY' ? '买入' : decision === 'WATCH' ? '观察' : '放弃';
   const decisionEn = decision === 'BUY' ? 'BUY' : decision === 'WATCH' ? 'WATCH' : 'PASS';
 
@@ -225,10 +241,12 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     tempRise1h: input.tempRise1h
   });
   if (!candidates.length) riskFlags.push('no_profit_edge');
+  if (hasPriorEntry) riskFlags.push('second_entry_guard');
+  if (isConsensusConflict) riskFlags.push('market_consensus_conflict');
   if (outputs.some((o) => (o.marketPrice >= skipNearCertainPrice || o.noMarketPrice >= skipNearCertainPrice))) {
     riskFlags.push('market_already_priced');
   }
-  if (best && best.sideProbability < minSideProbToTrade) riskFlags.push('low_confidence');
+  if (best && best.sideProbability < effectiveMinSideProb) riskFlags.push('low_confidence');
   if (maturity != null && maturity < 45) riskFlags.push('low_weather_maturity');
   if (input.scenarioTag === 'suppressed_heating') riskFlags.push('suppressed_heating');
   if (lockTriggered) riskFlags.push('temperature_locked');
@@ -269,19 +287,31 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const inactiveTip = isInactive ? '该市场已非 active 状态，不建议下单。' : '';
   const inactiveTipEn = isInactive ? 'Market is not active; placing orders is not recommended.' : '';
   const profitabilityTip = !candidates.length
-    ? `当前没有同时满足净利润、胜率与可交易门槛的盘口（最小胜率 ${(minSideProbToTrade * 100).toFixed(0)}%，近确定性价格已过滤），建议 PASS。`
+    ? `当前没有同时满足净利润、胜率与可交易门槛的盘口（最小胜率 ${(effectiveMinSideProb * 100).toFixed(0)}%，近确定性价格已过滤），建议 PASS。`
     : `最高温目标温度按 ${lockedTargetTemp}°C 进行全局联动约束（仅目标bin允许YES，其余为NO）。可交易净Edge约 ${(edge * 100).toFixed(1)}%，优先方向为 ${best?.bestSide ?? '-'}，对应胜率约 ${((best?.sideProbability ?? 0) * 100).toFixed(0)}%。`;
   const profitabilityTipEn = !candidates.length
-    ? `No bin meets both net-profit and win-rate thresholds (min win-rate ${(minSideProbToTrade * 100).toFixed(0)}%); PASS is recommended.`
+    ? `No bin meets both net-profit and win-rate thresholds (min win-rate ${(effectiveMinSideProb * 100).toFixed(0)}%); PASS is recommended.`
     : `Global mutually-exclusive constraint is applied with target temperature ${lockedTargetTemp}°C (only target bin can be YES; all others are NO). Tradable net edge is about ${(edge * 100).toFixed(1)}%, preferred side is ${best?.bestSide ?? '-'} with estimated win-rate ${((best?.sideProbability ?? 0) * 100).toFixed(0)}%.`;
+  const consensusTip = isConsensusConflict
+    ? `当前盘口主共识在 ${input.marketConsensusBin}（价格 ${(input.marketConsensusPrice! * 100).toFixed(1)}%），与模型优先方向冲突，已从 BUY 降级为 WATCH。`
+    : '';
+  const consensusTipEn = isConsensusConflict
+    ? `Strong market consensus is ${input.marketConsensusBin} (${((input.marketConsensusPrice ?? 0) * 100).toFixed(1)}%), conflicting with model preference; BUY is downgraded to WATCH.`
+    : '';
+  const secondEntryTip = hasPriorEntry
+    ? `同目标日已存在历史入场，本次启用二次入场保护（最小Edge ${(effectiveMinEdge * 100).toFixed(1)}%，最小胜率 ${(effectiveMinSideProb * 100).toFixed(0)}%）。`
+    : '';
+  const secondEntryTipEn = hasPriorEntry
+    ? `Second-entry guard is active for this target date (min edge ${(effectiveMinEdge * 100).toFixed(1)}%, min win-rate ${(effectiveMinSideProb * 100).toFixed(0)}%).`
+    : '';
   const lockTip = lockTriggered ? `已触发“晚盘锁温”规则：当前温度与已观测最高温接近，且未来1-3小时偏降温。` : '';
   const lockTipEn = lockTriggered ? 'Late-session lock rule is active: current temperature is near observed max and next 1-3h trend is cooling.' : '';
-  const reasonZh = `目标日全天最高温预测约 ${Math.round(input.maxTempSoFar)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${lockTip}${mismatchTip}${settleTip}${inactiveTip}`;
-  const reasonEn = `Forecast max temperature for target day is about ${Math.round(input.maxTempSoFar)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${lockTipEn}${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
+  const reasonZh = `目标日全天最高温预测约 ${Math.round(input.maxTempSoFar)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${secondEntryTip}${consensusTip}${lockTip}${mismatchTip}${settleTip}${inactiveTip}`;
+  const reasonEn = `Forecast max temperature for target day is about ${Math.round(input.maxTempSoFar)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${secondEntryTipEn}${consensusTipEn}${lockTipEn}${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
   const reason = `${reasonZh}\nEN: ${reasonEn}`;
 
   const finalDecision = isClosedByTime || isInactive ? 'PASS' : decision;
-  const finalPositionSize = isClosedByTime || isInactive || finalDecision === 'PASS' ? 0 : positionSize;
+  const finalPositionSize = isClosedByTime || isInactive || finalDecision !== 'BUY' ? 0 : positionSize;
 
   return {
     decision: finalDecision,
