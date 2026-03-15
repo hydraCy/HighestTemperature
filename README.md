@@ -1,30 +1,70 @@
-# Polymarket Shanghai Highest Temperature Research & Trading Decision Platform
+# Polymarket Shanghai Temperature Research & Trading Decision Platform
+# Polymarket 上海最高温研究与交易决策平台
 
-A single-user, read-only decision assistant for Polymarket Shanghai daily-high-temperature markets.
+A single-user, read-only research and trading-assist platform for Polymarket Shanghai daily max temperature markets.
+一个面向 Polymarket 上海日最高温市场的单用户、只读研究与交易辅助平台。
 
-This system does **not** auto-trade, does **not** connect wallets, and does **not** use private keys.
+- No auto-trading / 不自动下单
+- No wallet/private key integration / 不接入钱包与私钥
+- Core output / 核心输出: `Decision` / `Position` / `Reason`
 
-Core outputs:
+---
 
-- `Decision` (`BUY / WATCH / PASS`)
-- `Position`
-- `Reason`
+## 1) Positioning / 平台定位
 
-## Current Scope
+**EN**
+This project is not a generic weather app. It is a decision terminal built around Polymarket resolution rules.
 
-- City scope: `Shanghai` only
-- Resolution standard: `Shanghai Pudong International Airport Station (ZSPD)`
-- Resolution source: Wunderground rules/path as specified by Polymarket market rules
+Core principle:
+`Polymarket Rules -> Resolution Station -> Resolution Source -> Final Value`
 
-## Core Principle
+Current scope:
+- City: `Shanghai`
+- Station: `Shanghai Pudong International Airport Station (ZSPD)`
+- Resolution reference: Wunderground (as defined by Polymarket rules)
 
-This platform is not a generic weather app. It is a market-resolution research tool:
+**ZH**
+本项目不是通用天气网站，而是围绕 Polymarket 结算规则构建的交易决策终端。
 
-`Polymarket rules -> Resolution Station -> Resolution Source -> Final Value`
+核心原则：
+`Polymarket 规则 -> 结算站点 -> 结算来源 -> 最终值`
 
-Auxiliary weather feeds are used for estimation only and are clearly labeled as non-final settlement data.
+当前范围：
+- 城市：`Shanghai`
+- 站点：`Shanghai Pudong International Airport Station (ZSPD)`
+- 结算口径：以 Polymarket 规则指定的 Wunderground 为准
 
-## Tech Stack
+---
+
+## 2) Features / 功能概览
+
+**EN**
+- Real-time Polymarket market fetch (Shanghai max temperature)
+- Auto target-date rollover:
+  - Use same-day market if still active
+  - Switch to next-day market when closed/near settlement window
+- Multi-source weather fusion (strict success/failure separation)
+- Probability distribution, Edge, risk flags, score, decision
+- Nowcasting panel (current + next 1–3h)
+- Snapshot and replay support
+- Source bias stats for calibration
+- Bilingual UI (`?lang=zh` / `?lang=en`)
+
+**ZH**
+- 实时抓取 Polymarket 上海最高温盘口
+- 自动目标日期切换：
+  - 当天盘口可交易时优先当天
+  - 当天进入结算窗口/关闭后切换到次日
+- 多源天气融合（严格区分成功/失败，不伪造数据）
+- 概率分布、Edge、风险标签、评分与决策
+- 短临 Nowcasting 面板（当前 + 未来 1~3 小时）
+- 快照记录与复盘
+- 数据源偏差统计（用于校准）
+- 中英双语界面（`?lang=zh` / `?lang=en`）
+
+---
+
+## 3) Tech Stack / 技术栈
 
 - Next.js (App Router)
 - TypeScript
@@ -34,33 +74,16 @@ Auxiliary weather feeds are used for estimation only and are clearly labeled as 
 - Recharts
 - Zod
 - date-fns
+- node-cron
 
-## Key Features
+---
 
-- Real-time Polymarket market board for Shanghai highest-temperature events
-- Automatic market selection with trading-day priority:
-  - Prefer today's Shanghai market if still tradable
-  - Switch to tomorrow only when today's market is closed/inactive
-- Multi-source weather assist integration
-- Model probability + market price + EV output
-- Position sizing and risk-adjusted decision output
-- Snapshot logging for replay/review
-- Historical source-bias tracking (forecast vs settled value)
-- Bilingual UI support (`?lang=zh` / `?lang=en`)
+## 4) Trading Engine / 交易引擎
 
-## Real-Time Decision Mode
+Path / 路径: `/src/lib/trading-engine`
 
-Default behavior is `realtime`:
-
-- Every page visit recalculates with latest market + weather data
-- Every manual refresh recalculates decision immediately
-- No daily lock-in or reused stale decision
-
-## Trading Engine
-
-Path: `/src/lib/trading-engine`
-
-- `types.ts`
+Main modules / 核心模块:
+- `tradingEngine.ts` (entry / 主入口 `runTradingDecision`)
 - `edge.ts`
 - `timingScore.ts`
 - `weatherScore.ts`
@@ -68,29 +91,55 @@ Path: `/src/lib/trading-engine`
 - `riskEngine.ts`
 - `positionSizer.ts`
 - `model.ts`
-- `tradingEngine.ts` (`runTradingDecision`)
 
-Main formulas:
-
+Formula / 公式:
 - `Edge = ModelProbability - MarketPrice`
 - `TradeScore = 0.35*EdgeScore + 0.25*TimingScore + 0.20*WeatherScore + 0.20*DataQualityScore`
 
-Decision mapping:
+Decision mapping / 决策映射:
+- `< 60 -> PASS`
+- `60 ~ 75 -> WATCH`
+- `> 75 -> BUY`
 
-- `<60 -> PASS`
-- `60-75 -> WATCH`
-- `>75 -> BUY`
+---
 
-Position sizing:
+## 5) Data Sources / 数据源
 
-- `MaxTradeSize = totalCapital * maxSingleTradePercent`
-- `BasePosition = MaxTradeSize * EdgeMultiplier`
-- `PositionSize = BasePosition * RiskModifier`
+### Market / 市场
+- Polymarket Gamma API
 
-## Database Models
+### Weather Assist / 辅助天气源
+- Wunderground/Weather.com (station anchor / 站点锚定)
+- Open-Meteo
+- wttr
+- met.no
+- WeatherAPI (optional / 可选)
+- QWeather (optional / 可选)
+- AviationWeather (METAR/TAF for short-term risk / 短临风控)
 
-Defined in `prisma/schema.prisma`:
+**EN**
+Assist weather sources are not the final settlement source.
+If a source fails, status and reason are shown; no fake fallback data is injected.
 
+**ZH**
+辅助天气源不是最终结算依据。
+外部源失败时会显示状态与原因，不会注入假数据。
+
+---
+
+## 6) Pages / 页面
+
+- `/` Home terminal / 首页决策终端
+- `/three-pm` 3PM scanner / 3PM 扫盘页
+- `/market/[slug]` Market detail / 市场详情页
+
+---
+
+## 7) Database / 数据库
+
+Schema file / 结构文件: `/prisma/schema.prisma`
+
+Core tables / 主要表:
 - `markets`
 - `market_bins`
 - `resolution_metadata`
@@ -102,38 +151,9 @@ Defined in `prisma/schema.prisma`:
 - `settled_results`
 - `forecast_source_biases`
 
-## Main Pages
+---
 
-- `/`
-  - Resolution Standard Card
-  - Market Board
-  - Model Board
-  - Decision / Position / Reason
-  - Full bin table
-- `/market/[slug]`
-  - Bin edges
-  - Temperature/edge charts
-  - Snapshots and notes
-  - Source bias table
-
-## Jobs and Refresh
-
-Node cron (`npm run jobs`):
-
-- Market update: every 5 minutes
-- Weather update: every 10 minutes
-- Model run: every 5 minutes
-- Settled sync: daily at 01:10
-
-Manual:
-
-- `POST /api/refresh`
-- `POST /api/jobs/run` with `job=market|weather|model|settled|all`
-- `npm run job:once -- all`
-- `npm run job:once -- market`
-- `npm run job:once -- settled`
-
-## Local Setup
+## 8) Local Setup / 本地启动
 
 ```bash
 npm install
@@ -144,108 +164,89 @@ npm run db:seed
 npm run dev
 ```
 
-`npm run db:seed` now only clears historical rows and does not insert any demo/mock data.
+**EN**
+`npm run dev` runs one initial `job:once -- all` before starting Next.js.
 
-## Port Behavior (3000 / 3001)
+**ZH**
+`npm run dev` 会在启动前自动执行一次 `job:once -- all`。
 
-- `npm run dev` defaults to `3000`
-- If `3000` is occupied, Next.js automatically falls back to `3001`
-- Always use the URL shown in terminal logs
+---
 
-## Environment Variables
-
-See `.env.example`:
-
-- `DATABASE_URL`
-- `POLYMARKET_API_BASE`
-- `POLYMARKET_EVENT_SLUG` (optional manual override)
-- `POLYMARKET_TIMEOUT_MS`
-- `MARKET_ROLLOVER_WINDOW_MINUTES` (auto-switch to next day after settlement window starts)
-- `TOTAL_CAPITAL`
-- `MAX_SINGLE_TRADE_PERCENT`
-- `MIN_EDGE_TO_TRADE`
-- `MIN_UPSIDE_TO_TRADE`
-- `MIN_SIDE_PROB_TO_TRADE`
-- `SECOND_ENTRY_MIN_EDGE` (stricter edge threshold when there is already a prior BUY on the same target market)
-- `SECOND_ENTRY_MIN_PROB` (stricter probability threshold for second entry)
-- `MARKET_CONSENSUS_STRONG_PRICE` (if market consensus price exceeds this and conflicts with model side, BUY is downgraded to WATCH)
-- `TRADING_COST_PER_TRADE`
-- `NO_PRICE_FALLBACK_PENALTY` (penalty added when NO executable price is missing)
-- `WEATHER_STALE_MINUTES` (hard freshness gate; if latest weather is older than this threshold, decision is forced to `PASS`)
-- `SKIP_NEAR_CERTAIN_PRICE`
-- `MAX_TEMP_UPSHIFT_THRESHOLD`
-- `DECISION_POLICY`
-- `WEATHER_STRICT_SOURCES`
-- `ENABLE_NWS_HOURLY` (default `false`; NWS coverage is mainly for US gridpoints)
-- `FUSION_EXCLUDED_SOURCES` (exclude sources from fusion weighting; default excludes `nws_hourly`)
-- `BIAS_LOOKBACK_DAYS`
-- `BIAS_MIN_TOTAL_SAMPLES`
-- `BIAS_MIN_SOURCE_SAMPLES`
-- `ENABLE_BIAS_CALIBRATION` (default `false`; keep off until enough settled samples are accumulated)
-- `ENABLE_FUSION_CALIBRATION` (default `false`; keep off until enough settled samples are accumulated)
-- `FUSION_CALIBRATION_LOOKBACK_DAYS` (lookback window for fusion calibration rows)
-- `FUSION_CALIBRATION_BUCKET_MIN_SAMPLES` (minimum sample size for scenario/time bucket override)
-- `WEATHERAPI_KEY` (optional)
-- `WEATHERAPI_API_BASE` (optional)
-- `QWEATHER_API_KEY` (optional)
-- `QWEATHER_API_BASE` (optional)
-
-## Real Data Policy
-
-The platform is configured for real data (no fake fallback for core decision outputs):
-
-- Polymarket market APIs
-- Wunderground/Weather.com real-time observations + 1-3h nowcasting (ZSPD) as primary short-term decision input
-- Learned peak-temperature window from latest 30-day ZSPD history (used by timing score)
-- Free weather sources: AviationWeather / wttr.in / met.no (NWS Hourly optional, disabled by default)
-- Optional paid weather sources: WeatherAPI / QWeather
-- Wunderground/Weather.com historical observations for settlement sync
-
-If external sources fail:
-
-- jobs may error or degrade with explicit warnings
-- UI shows source-level status and error reasons
-- strict source mode can force `PASS` with `position=0`
-
-Default strict weather source requirement:
-
-- `WEATHER_STRICT_SOURCES=wttr,met_no`
-
-## Station Binding
-
-Both weather assist and resolution context are fixed to:
-
-- `Shanghai Pudong International Airport Station`
-- `ZSPD`
-- Coordinates: `31.1443, 121.8083`
-
-## Tests
+## 9) Useful Commands / 常用命令
 
 ```bash
+npm run dev
+npm run typecheck
 npm run test
-```
 
-Includes core coverage for:
+npm run job:once -- all
+npm run job:once -- market
+npm run job:once -- weather
+npm run job:once -- model
+npm run job:once -- settled
 
-- bin parsing
-- probability normalization
-- edge calculation
-- timing/weather/data quality scoring
-- risk modifier and position sizing
-- `runTradingDecision` output shape
-
-## Source Bias Report (30d)
-
-Run:
-
-```bash
+npm run jobs
 npm run compare:openmeteo-wu
 ```
 
-This script now reports rolling 30-day bias stats for all configured sources (`nws_hourly`, `wttr`, `met_no`, `weatherapi`, `qweather`) using stored settlement comparisons, including:
+---
 
-- sample size
-- mean bias
-- MAE / RMSE
-- exact-hit / within-1C hit rates
-- bias factor and reliability score
+## 10) Environment Variables / 环境变量
+
+Copy `.env.example` and configure as needed.
+复制 `.env.example` 后按需配置。
+
+Important keys / 重点变量:
+- `DATABASE_URL`
+- `POLYMARKET_API_BASE`
+- `POLYMARKET_EVENT_SLUG`
+- `MARKET_ROLLOVER_WINDOW_MINUTES`
+- `TOTAL_CAPITAL`
+- `MAX_SINGLE_TRADE_PERCENT`
+- `WEATHER_STRICT_SOURCES`
+- `ENABLE_NWS_HOURLY`
+- `FUSION_EXCLUDED_SOURCES`
+- `WEATHERAPI_KEY`
+- `QWEATHER_API_KEY`
+- `AVIATIONWEATHER_API_BASE`
+
+---
+
+## 11) Port Notes / 端口说明
+
+- Default / 默认: `3000`
+- If occupied / 被占用时: fallback to `3001`
+- Always use terminal `Local:` URL
+- 以终端输出的 `Local:` 地址为准
+
+---
+
+## 12) Scheduling / 调度
+
+`npm run jobs` (node-cron):
+- Market / 市场: every 5 min
+- Weather / 天气: every 10 min
+- Model / 模型: every 5 min
+- Settled sync / 结算同步: daily 01:10
+
+Manual APIs / 手动接口:
+- `POST /api/refresh`
+- `POST /api/jobs/run` (`job=market|weather|model|settled|all`)
+
+---
+
+## 13) Final Output / 最终输出
+
+- `Decision`: `BUY / WATCH / PASS`
+- `Position`: suggested size / 建议仓位
+- `Reason`: explanation in Chinese/English UI context / 原因解释
+
+---
+
+## 14) Disclaimer / 免责声明
+
+**EN**
+This project is for research and decision support only, not investment advice.
+
+**ZH**
+本项目仅用于研究与决策辅助，不构成投资建议。
