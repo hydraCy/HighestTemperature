@@ -1,7 +1,6 @@
 import type { StationType } from '@/src/lib/fusion-engine/types';
+import { stationMatchScore } from '@/src/lib/fusion-engine/sourcePolicy';
 
 export function matchScore(stationType: StationType) {
-  if (stationType === 'exact_station') return 1;
-  if (stationType === 'city_level') return 0.7;
-  return 0.5;
+  return stationMatchScore(stationType);
 }

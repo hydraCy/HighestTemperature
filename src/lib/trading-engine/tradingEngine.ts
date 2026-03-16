@@ -74,7 +74,9 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const secondEntryMinEdge = Number(process.env.SECOND_ENTRY_MIN_EDGE ?? '0.06');
   const secondEntryMinProb = Number(process.env.SECOND_ENTRY_MIN_PROB ?? '0.62');
   const consensusStrongPrice = Number(process.env.MARKET_CONSENSUS_STRONG_PRICE ?? '0.65');
-  const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
+  const fees = Number(process.env.TRADING_FEES ?? process.env.TRADING_COST_PER_TRADE ?? '0.01');
+  const slippage = Number(process.env.TRADING_SLIPPAGE ?? '0.005');
+  const tradingCost = fees + slippage;
   const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
   const hasPriorEntry = (input.entryCountForTargetDate ?? 0) >= 1;
   const effectiveMinEdge = hasPriorEntry ? Math.max(minEdgeToTrade, secondEntryMinEdge) : minEdgeToTrade;
@@ -99,6 +101,10 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     const edgeNo = calculateEdge(modelNo, noPrice);
     const netEdgeYes = edgeYes - tradingCost;
     const netEdgeNo = edgeNo - tradingCost;
+    const theoreticalEVYes = edgeYes;
+    const theoreticalEVNo = edgeNo;
+    const tradableEVYes = modelYes - yesPrice - fees - slippage;
+    const tradableEVNo = modelNo - noPrice - fees - slippage;
     // Global mutually-exclusive market logic:
     // only target bin can be YES, all other bins are constrained to NO.
     const bestSide: Side = isTargetBin ? 'YES' : 'NO';
@@ -113,6 +119,10 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
       edgeNo,
       netEdgeYes,
       netEdgeNo,
+      theoreticalEVYes,
+      theoreticalEVNo,
+      tradableEVYes,
+      tradableEVNo,
       hasExecutableNo,
       isTargetBin,
       bestSide,
@@ -125,9 +135,10 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
       const chosenSide: Side = o.bestSide;
       const chosenEntry = chosenSide === 'YES' ? o.marketPrice : o.noMarketPrice;
       const chosenProb = chosenSide === 'YES' ? o.modelProbability : o.modelNoProbability;
-      const chosenNetEdge = (chosenSide === 'YES' ? o.netEdgeYes : o.netEdgeNo);
+      const chosenNetEdge = (chosenSide === 'YES' ? o.tradableEVYes : o.tradableEVNo);
       const chosenExecutable = chosenSide === 'YES' ? true : o.hasExecutableNo;
       const nearCertain = chosenEntry >= skipNearCertainPrice;
+      const overCertainProb = chosenProb > 0.95;
       return {
         ...o,
         bestSide: chosenSide,
@@ -137,10 +148,11 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
         sideExecutable: chosenExecutable,
         qualityScore: chosenNetEdge * chosenProb * (o.isTargetBin ? 1 : 0.95),
         lockTriggered,
-        nearCertain
+        nearCertain,
+        overCertainProb
       };
     })
-    .filter((o) => o.sideExecutable && o.netEdge >= effectiveMinEdge && o.upside >= minUpsideToTrade && o.sideProbability >= effectiveMinSideProb && !o.nearCertain)
+    .filter((o) => o.sideExecutable && o.netEdge >= effectiveMinEdge && o.upside >= minUpsideToTrade && o.sideProbability >= effectiveMinSideProb && !o.nearCertain && !o.overCertainProb)
     .sort((a, b) => b.qualityScore - a.qualityScore || b.netEdge - a.netEdge);
   const bestRaw = [...outputs].sort((a, b) => b.edge - a.edge)[0] ?? outputs[0];
   const lockFallback = lockTriggered
@@ -148,10 +160,10 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
       .map((o) => ({
         ...o,
         sideExecutable: o.bestSide === 'YES' ? true : o.hasExecutableNo,
-        netEdge: o.bestSide === 'YES' ? o.netEdgeYes : o.netEdgeNo,
+        netEdge: o.bestSide === 'YES' ? o.tradableEVYes : o.tradableEVNo,
         upside: 1 - (o.bestSide === 'YES' ? o.marketPrice : o.noMarketPrice),
         sideProbability: o.bestSide === 'YES' ? o.modelProbability : o.modelNoProbability,
-        qualityScore: (o.bestSide === 'YES' ? o.netEdgeYes : o.netEdgeNo) * (o.bestSide === 'YES' ? o.modelProbability : o.modelNoProbability)
+        qualityScore: (o.bestSide === 'YES' ? o.tradableEVYes : o.tradableEVNo) * (o.bestSide === 'YES' ? o.modelProbability : o.modelNoProbability)
       }))
       .filter((o) => o.sideExecutable)
       .sort((a, b) => b.qualityScore - a.qualityScore)[0] ?? null
@@ -160,7 +172,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     ? {
         ...bestRaw,
         sideExecutable: bestRaw.bestSide === 'YES' ? true : bestRaw.hasExecutableNo,
-        netEdge: bestRaw.edge,
+        netEdge: bestRaw.bestSide === 'YES' ? bestRaw.tradableEVYes : bestRaw.tradableEVNo,
         upside: 1 - (bestRaw.bestSide === 'YES' ? bestRaw.marketPrice : bestRaw.noMarketPrice),
         sideProbability: bestRaw.bestSide === 'YES' ? bestRaw.modelProbability : bestRaw.modelNoProbability,
         qualityScore: bestRaw.edge * (bestRaw.bestSide === 'YES' ? bestRaw.modelProbability : bestRaw.modelNoProbability)
@@ -189,7 +201,11 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     resolutionReady: input.resolutionReady,
     weatherReady: input.weatherReady,
     marketReady: input.marketReady,
-    modelReady: input.modelReady
+    modelReady: input.modelReady,
+    rulesParsed: input.rulesParsed,
+    hasCompleteSources: input.hasCompleteSources,
+    weatherFreshnessHours: input.weatherFreshnessHours,
+    avgSourceHealthScore: input.avgSourceHealthScore
   });
 
   const edgeScore = edgeToScore(Math.max(0, edge));
@@ -221,7 +237,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   }
 
   let decision: TradingDecisionOutput['decision'] =
-    tradeScore < 60 ? 'PASS' : tradeScore <= 75 ? 'WATCH' : 'BUY';
+    edge > 0.06 ? 'BUY' : edge >= 0.02 ? 'WATCH' : 'PASS';
   if (!candidates.length) decision = 'PASS';
   const hasStrongMarketConsensus = (input.marketConsensusPrice ?? 0) >= consensusStrongPrice;
   const isConsensusConflict = Boolean(
@@ -313,12 +329,16 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
 
   const finalDecision = isClosedByTime || isInactive ? 'PASS' : decision;
   const finalPositionSize = isClosedByTime || isInactive || finalDecision !== 'BUY' ? 0 : positionSize;
+  const portfolioEV = edge * finalPositionSize;
 
   return {
     decision: finalDecision,
     recommendedBin: best?.outcomeLabel ?? '-',
     recommendedSide: best?.bestSide ?? 'YES',
     edge,
+    theoreticalEV: best ? (best.bestSide === 'YES' ? best.theoreticalEVYes : best.theoreticalEVNo) : edge,
+    tradableEV: edge,
+    portfolioEV,
     tradeScore: Number(tradeScore.toFixed(2)),
     positionSize: finalPositionSize,
     timingScore,
@@ -329,5 +349,9 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
     reasonZh,
     reasonEn,
     binOutputs: outputs
+      .map((o) => ({
+        ...o,
+        portfolioEV: (o.bestSide === 'YES' ? o.tradableEVYes : o.tradableEVNo) * finalPositionSize
+      }))
   };
 }

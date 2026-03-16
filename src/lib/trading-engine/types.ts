@@ -18,6 +18,11 @@ export type ModelBinOutput = {
   edgeNo: number;
   netEdgeYes: number;
   netEdgeNo: number;
+  theoreticalEVYes?: number;
+  theoreticalEVNo?: number;
+  tradableEVYes?: number;
+  tradableEVNo?: number;
+  portfolioEV?: number;
   bestSide: Side;
   edge: number;
 };
@@ -55,6 +60,10 @@ export type TradingInput = {
   weatherReady: boolean;
   marketReady: boolean;
   modelReady: boolean;
+  rulesParsed?: boolean;
+  hasCompleteSources?: boolean;
+  weatherFreshnessHours?: number | null;
+  avgSourceHealthScore?: number | null;
   totalCapital: number;
   maxSingleTradePercent: number;
 };
@@ -64,6 +73,9 @@ export type TradingDecisionOutput = {
   recommendedBin: string;
   recommendedSide: Side;
   edge: number;
+  theoreticalEV?: number;
+  tradableEV?: number;
+  portfolioEV?: number;
   tradeScore: number;
   positionSize: number;
   timingScore: number;

@@ -1,10 +1,15 @@
-export type StationType = 'exact_station' | 'city_level' | 'grid_point';
+import type { SourceHealthStatus, SourceKind } from '@/src/lib/fusion-engine/sourcePolicy';
+
+export type StationType = 'exact_station' | 'city_level' | 'region_grid' | 'east_china_grid' | 'grid_point';
 
 export type WeatherSourceInput = {
   sourceName: string;
   rawPredictedMaxTemp: number;
   stationType: StationType;
   explicitResolutionStation?: boolean;
+  sourceKind?: SourceKind;
+  forecastAgeHours?: number | null;
+  healthStatus?: SourceHealthStatus;
 };
 
 export type HistoricalCalibration = {
@@ -39,13 +44,18 @@ export type ScenarioContext = {
 
 export type SourceBreakdown = {
   sourceName: string;
+  sourceKind?: SourceKind;
   rawPredictedMaxTemp: number;
   adjustedPredictedMaxTemp: number;
+  baseSourceWeight?: number;
   matchScore: number;
   stationPenaltyScore?: number;
   accuracyScore: number;
   scenarioScore: number;
   regimeScore?: number;
+  freshnessScore?: number;
+  healthScore?: number;
+  healthStatus?: SourceHealthStatus;
   finalWeight: number;
 };
 

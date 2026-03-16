@@ -32,8 +32,9 @@
   - 当天盘口可交易时优先当天
   - 当天进入结算窗口/关闭后切换到次日
 - 多源天气融合（严格区分成功/失败，不伪造数据）
+- 天气源策略层：`sourceKind` / 站点匹配 / 新鲜度 / 健康度
 - 概率分布、Edge、风险标签、评分与决策
-- 短临 Nowcasting 面板（当前 + 未来 1~3 小时）
+- 短临 Nowcasting 面板（当前 + 未来 1~6 小时）
 - 快照记录与复盘
 - 数据源偏差统计（用于校准）
 - 中英双语界面（`?lang=zh` / `?lang=en`）
@@ -73,9 +74,9 @@
 - `TradeScore = 0.35*EdgeScore + 0.25*TimingScore + 0.20*WeatherScore + 0.20*DataQualityScore`
 
 决策映射：
-- `< 60 -> PASS`
-- `60 ~ 75 -> WATCH`
-- `> 75 -> BUY`
+- `tradableEV > 0.06 -> BUY`
+- `0.02 ~ 0.06 -> WATCH`
+- `< 0.02 -> PASS`
 
 ---
 
@@ -96,6 +97,9 @@
 说明：
 - 辅助天气源不是最终结算依据。
 - 外部源失败时会显示状态与原因，不会注入假数据。
+- Open-Meteo 强制使用模型参数：`models=ecmwf_ifs04`。
+- 权重公式：
+  - `rawWeight = baseSourceWeight × matchScore × stationPenalty × accuracyScore × scenarioScore × regimeScore × freshnessScore × healthScore`
 
 ---
 

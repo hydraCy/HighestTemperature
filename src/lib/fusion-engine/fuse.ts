@@ -9,6 +9,12 @@ import { buildFusionExplanation } from '@/src/lib/fusion-engine/explain';
 import { matchScore } from '@/src/lib/fusion-engine/matchScore';
 import { normalIntervalProbability } from '@/src/lib/fusion-engine/normalDist';
 import { regimeScoreForSource } from '@/src/lib/fusion-engine/regimeScore';
+import {
+  baseSourceWeight,
+  classifySourceKind,
+  sourceFreshnessScore,
+  sourceHealthScore
+} from '@/src/lib/fusion-engine/sourcePolicy';
 import { scenarioLabel, scenarioScoreForSource } from '@/src/lib/fusion-engine/scenarioScore';
 import type {
   FusionInput,
@@ -58,6 +64,9 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
       sourceName: src.sourceName,
       stationType: src.stationType,
       explicitResolutionStation: src.explicitResolutionStation,
+      sourceKind: src.sourceKind ?? classifySourceKind(src.sourceName),
+      forecastAgeHours: src.forecastAgeHours,
+      healthStatus: src.healthStatus ?? 'healthy',
       rawPredictedMaxTemp: src.rawPredictedMaxTemp,
       adjustedPredictedMaxTemp: applyBiasCalibration(src.rawPredictedMaxTemp, cal.bias),
       mae: cal.mae,
@@ -73,7 +82,7 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
       ? 1
       : row.explicitResolutionStation
         ? 1
-        : 0.72;
+        : mScore;
     const aScore = calibrationQualityScore(row.calibration);
     const sScore = scenarioScoreForSource(
       input.scenarioContext,
@@ -84,14 +93,20 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
       ...input.scenarioContext,
       scenarioTag: input.scenarioContext.scenarioTag ?? scenario
     });
-    const rawWeight = mScore * stationPenaltyScore * aScore * sScore * rScore;
+    const bScore = baseSourceWeight(row.sourceKind);
+    const fScore = sourceFreshnessScore(row.forecastAgeHours);
+    const hScore = sourceHealthScore(row.healthStatus);
+    const rawWeight = bScore * mScore * stationPenaltyScore * aScore * sScore * rScore * fScore * hScore;
     return {
       ...row,
+      baseSourceWeight: bScore,
       matchScore: mScore,
       stationPenaltyScore,
       accuracyScore: aScore,
       scenarioScore: sScore,
       regimeScore: rScore,
+      freshnessScore: fScore,
+      healthScore: hScore,
       rawWeight,
       sourceSigma: sourceSigmaFromMae(row.mae)
     };
@@ -101,13 +116,18 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
 
   const sourceBreakdown: SourceBreakdown[] = scored.map((s, i) => ({
     sourceName: s.sourceName,
+    sourceKind: s.sourceKind,
     rawPredictedMaxTemp: s.rawPredictedMaxTemp,
     adjustedPredictedMaxTemp: s.adjustedPredictedMaxTemp,
+    baseSourceWeight: Number(s.baseSourceWeight.toFixed(4)),
     matchScore: Number(s.matchScore.toFixed(4)),
     stationPenaltyScore: Number(s.stationPenaltyScore.toFixed(4)),
     accuracyScore: Number(s.accuracyScore.toFixed(4)),
     scenarioScore: Number(s.scenarioScore.toFixed(4)),
     regimeScore: Number(s.regimeScore.toFixed(4)),
+    freshnessScore: Number(s.freshnessScore.toFixed(4)),
+    healthScore: Number(s.healthScore.toFixed(4)),
+    healthStatus: s.healthStatus,
     finalWeight: Number(normWeights[i].toFixed(6))
   }));
 

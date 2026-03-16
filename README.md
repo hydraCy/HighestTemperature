@@ -32,8 +32,9 @@ Current scope:
   - Use same-day market if still active
   - Switch to next-day market when closed/near settlement window
 - Multi-source weather fusion (strict success/failure separation)
+- Weather source policy layer: `sourceKind` / station match / freshness / health
 - Probability distribution, Edge, risk flags, score, decision
-- Nowcasting panel (current + next 1–3h)
+- Nowcasting panel (current + next 1–6h)
 - Snapshot and replay support
 - Source bias stats for calibration
 - Bilingual UI (`?lang=zh` / `?lang=en`)
@@ -73,9 +74,9 @@ Formula:
 - `TradeScore = 0.35*EdgeScore + 0.25*TimingScore + 0.20*WeatherScore + 0.20*DataQualityScore`
 
 Decision mapping:
-- `< 60 -> PASS`
-- `60 ~ 75 -> WATCH`
-- `> 75 -> BUY`
+- `tradableEV > 0.06 -> BUY`
+- `0.02 ~ 0.06 -> WATCH`
+- `< 0.02 -> PASS`
 
 ---
 
@@ -96,6 +97,9 @@ Decision mapping:
 Notes:
 - Assist weather sources are not the final settlement source.
 - If a source fails, status and reason are shown; no fake fallback data is injected.
+- Open-Meteo is fetched with forced model: `models=ecmwf_ifs04`.
+- Weight formula:
+  - `rawWeight = baseSourceWeight × matchScore × stationPenalty × accuracyScore × scenarioScore × regimeScore × freshnessScore × healthScore`
 
 ---
 

@@ -29,6 +29,8 @@ export function LiveMarketPoller({
   weatherUpdatedAt?: string | null;
 }) {
   const router = useRouter();
+  const [hydrated, setHydrated] = useState(false);
+  const [nowMs, setNowMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
@@ -63,16 +65,25 @@ export function LiveMarketPoller({
     [lang]
   );
 
+  useEffect(() => {
+    setHydrated(true);
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const marketStale = useMemo(() => {
+    if (!hydrated || nowMs == null) return false;
     if (!marketUpdatedAt) return true;
-    const ms = Date.now() - new Date(marketUpdatedAt).getTime();
+    const ms = nowMs - new Date(marketUpdatedAt).getTime();
     return !Number.isFinite(ms) || ms > 3 * 60 * 1000;
-  }, [marketUpdatedAt]);
+  }, [hydrated, marketUpdatedAt, nowMs]);
   const weatherStale = useMemo(() => {
+    if (!hydrated || nowMs == null) return false;
     if (!weatherUpdatedAt) return true;
-    const ms = Date.now() - new Date(weatherUpdatedAt).getTime();
+    const ms = nowMs - new Date(weatherUpdatedAt).getTime();
     return !Number.isFinite(ms) || ms > 15 * 60 * 1000;
-  }, [weatherUpdatedAt]);
+  }, [hydrated, nowMs, weatherUpdatedAt]);
   const stale = marketStale || weatherStale;
 
   async function postJob(job: 'market' | 'weather' | 'model') {
@@ -121,10 +132,10 @@ export function LiveMarketPoller({
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="font-medium">{t.title}</p>
-          <p className="text-muted-foreground">{t.marketLast}: {fmt(marketUpdatedAt)}</p>
-          <p className="text-muted-foreground">{t.weatherLast}: {fmt(weatherUpdatedAt)}</p>
-          <p className={stale ? 'text-amber-300' : 'text-emerald-400'}>{stale ? t.stale : t.fresh}</p>
-          <p className="text-muted-foreground">{t.synced}: {lastSyncAt ? (lastSyncAt === t.err ? t.err : fmt(lastSyncAt)) : '-'}</p>
+          <p className="text-muted-foreground">{t.marketLast}: {hydrated ? fmt(marketUpdatedAt) : '-'}</p>
+          <p className="text-muted-foreground">{t.weatherLast}: {hydrated ? fmt(weatherUpdatedAt) : '-'}</p>
+          <p className={stale ? 'text-amber-300' : 'text-emerald-400'}>{hydrated ? (stale ? t.stale : t.fresh) : '-'}</p>
+          <p className="text-muted-foreground">{t.synced}: {hydrated ? (lastSyncAt ? (lastSyncAt === t.err ? t.err : fmt(lastSyncAt)) : '-') : '-'}</p>
         </div>
         <Button
           variant="outline"

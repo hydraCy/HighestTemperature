@@ -6,6 +6,7 @@ import { parseResolutionMetadata } from '@/lib/services/resolution-parser';
 import { fetchShanghaiWeatherAssist } from '@/lib/services/weather-assist';
 import { fetchWundergroundSettledMaxTemp } from '@/lib/services/wunderground-settlement';
 import { estimateProjectedFinalTemperature } from '@/src/lib/trading-engine/model';
+import { computeConstraintBounds } from '@/src/lib/trading-engine/constraints';
 import {
   buildIntegerSettlementDistribution,
   mapIntegerDistributionToBins,
@@ -122,7 +123,8 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
   const byCode = new Map(stats.map((s) => [s.sourceCode, s]));
   const rows = [
     { code: 'wunderground_daily', raw: sourceDailyMax.wundergroundDaily },
-    { code: 'nws_hourly', raw: sourceDailyMax.nwsHourly ?? sourceDailyMax.openMeteo },
+    { code: 'open_meteo', raw: sourceDailyMax.openMeteo },
+    { code: 'nws_hourly', raw: sourceDailyMax.nwsHourly },
     { code: 'wttr', raw: sourceDailyMax.wttr },
     { code: 'met_no', raw: sourceDailyMax.metNo },
     { code: 'weatherapi', raw: sourceDailyMax.weatherApi },
@@ -181,7 +183,8 @@ async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: D
 
   const rows = [
     { sourceCode: 'wunderground_daily', sourceGroup: 'free', predictedMax: max.wundergroundDaily },
-    { sourceCode: 'nws_hourly', sourceGroup: 'free', predictedMax: max.nwsHourly ?? max.openMeteo },
+    { sourceCode: 'open_meteo', sourceGroup: 'free', predictedMax: max.openMeteo },
+    { sourceCode: 'nws_hourly', sourceGroup: 'free', predictedMax: max.nwsHourly },
     { sourceCode: 'wttr', sourceGroup: 'free', predictedMax: max.wttr },
     { sourceCode: 'met_no', sourceGroup: 'free', predictedMax: max.metNo },
     { sourceCode: 'weatherapi', sourceGroup: 'paid', predictedMax: max.weatherApi },
@@ -255,7 +258,8 @@ function enforceStrictWeatherSourceGate(
   const requiredFromMeta = Array.isArray(meta.strictRequiredSources) ? meta.strictRequiredSources : [];
   const statusMap: Record<string, boolean> = {
     aviationweather: meta.aviationweather === 'ok',
-    nws_hourly: (meta.nwsHourly ?? meta.openMeteo) === 'ok',
+    open_meteo: meta.openMeteo === 'ok',
+    nws_hourly: meta.nwsHourly === 'ok',
     wttr: meta.wttr === 'ok',
     met_no: meta.metNo === 'ok',
     weatherapi: meta.weatherapi === 'ok',
@@ -263,9 +267,11 @@ function enforceStrictWeatherSourceGate(
   };
   const sourceDailyMax = meta.sourceDailyMax;
   const requiresNws = requiredFromMeta.includes('nws_hourly');
+  const requiresOpenMeteo = requiredFromMeta.includes('open_meteo');
   const inferredMissing = [
     sourceDailyMax?.wundergroundDaily == null ? 'wunderground_daily' : null,
-    (requiresNws && (sourceDailyMax?.nwsHourly ?? sourceDailyMax?.openMeteo) == null) ? 'nws_hourly' : null,
+    (requiresOpenMeteo && sourceDailyMax?.openMeteo == null) ? 'open_meteo' : null,
+    (requiresNws && sourceDailyMax?.nwsHourly == null) ? 'nws_hourly' : null,
     sourceDailyMax?.wttr == null ? 'wttr' : null,
     sourceDailyMax?.metNo == null ? 'met_no' : null,
     (sourceDailyMax?.weatherApi == null && sourceDailyMax?.qWeather == null && sourceDailyMax?.cmaChina == null) ? 'weatherapi' : null
@@ -443,7 +449,7 @@ export async function refreshWeatherData() {
   });
   if (!market) return null;
 
-  const weatherRes = await fetchShanghaiWeatherAssist(market.targetDate);
+  const weatherRes = await fetchShanghaiWeatherAssist(market.targetDate, market.id);
   const w = weatherRes.data;
   const weatherTargetDate = (w.raw as { targetDate?: string } | undefined)?.targetDate;
   const marketTargetDate = shanghaiDateKey(market.targetDate);
@@ -511,6 +517,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         medianHour?: number;
         sampleDays?: number;
       };
+      strictReady?: boolean;
+      fetchedAtIso?: string;
+      sourceHealth?: Record<string, { healthScore?: number; status?: string }>;
       forecastExplain?: {
         outcomeProbabilities?: Array<{ label?: string; probability?: number }>;
       };
@@ -535,6 +544,18 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
   const learnedPeakWindow = weatherRaw.raw?.learnedPeakWindow;
   const fusionOutcomeProbabilities = (weatherRaw.raw?.forecastExplain?.outcomeProbabilities ?? [])
     .filter((x): x is { label: string; probability: number } => typeof x?.label === 'string' && typeof x?.probability === 'number' && Number.isFinite(x.probability));
+  const weatherFreshnessHours = (() => {
+    const ts = weatherRaw.raw?.fetchedAtIso ? new Date(weatherRaw.raw.fetchedAtIso).getTime() : NaN;
+    if (!Number.isFinite(ts)) return null;
+    return Math.max(0, (Date.now() - ts) / 3600000);
+  })();
+  const avgSourceHealthScore = (() => {
+    const rows = Object.values(weatherRaw.raw?.sourceHealth ?? {});
+    if (!rows.length) return null;
+    const vals = rows.map((x) => x?.healthScore).filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+    if (!vals.length) return null;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  })();
   const biasAdjusted = await computeBiasAdjustedFusedTarget(sourceDailyMax ?? null);
   const fusedContinuous = biasAdjusted?.fused ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
   const fusedAnchor = sourceDailyMax?.fusedAnchor ?? Math.round(fusedContinuous);
@@ -597,28 +618,23 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
   const nowHourLocal = shanghaiHourNow(new Date());
   const learnedStartHour = Number.isFinite(learnedPeakWindow?.startHour) ? Number(learnedPeakWindow?.startHour) : 13;
   const learnedEndHour = Number.isFinite(learnedPeakWindow?.endHour) ? Number(learnedPeakWindow?.endHour) : 16;
-  const minAllowedInteger = isTargetDateToday && typeof todayMaxTemp === 'number' && Number.isFinite(todayMaxTemp)
-    ? Math.round(todayMaxTemp)
-    : undefined;
   const futureTemps = (nowcasting?.futureHours ?? [])
     .slice(0, 6)
     .map((x) => x.temp)
     .filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
-  const forecastFloorInteger = isTargetDateToday && futureTemps.length
-    ? Math.floor(Math.max(...futureTemps))
-    : undefined;
-  const effectiveMinAllowedInteger = [
-    minAllowedInteger,
-    forecastFloorInteger
-  ].filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).reduce((a, b) => Math.max(a, b), Number.NEGATIVE_INFINITY);
-  const finalMinAllowedInteger = Number.isFinite(effectiveMinAllowedInteger) ? effectiveMinAllowedInteger : undefined;
-  const futureCapContinuous = futureTemps.length
-    ? Math.max(modelCurrentTemp, todayMaxTemp ?? Number.NEGATIVE_INFINITY, ...futureTemps) + 0.4
-    : null;
-  const nearLockWindow = isTargetDateToday && nowHourLocal >= Math.max(learnedStartHour, learnedEndHour - 1);
-  const maxAllowedInteger = nearLockWindow && futureCapContinuous != null
-    ? Math.floor(futureCapContinuous)
-    : undefined;
+  const constraints = computeConstraintBounds({
+    isTargetDateToday,
+    nowHourLocal,
+    learnedPeakWindowStartHour: learnedStartHour,
+    learnedPeakWindowEndHour: learnedEndHour,
+    observedMaxTemp: todayMaxTemp,
+    currentTemp: modelCurrentTemp,
+    futureTemps1To6h: futureTemps,
+    cloudCover: modelCloudCover,
+    windSpeed: modelWindSpeed
+  });
+  const finalMinAllowedInteger = constraints.minAllowedInteger;
+  const maxAllowedInteger = constraints.maxAllowedInteger;
   const beforePeak = isTargetDateToday && nowHourLocal < learnedStartHour;
   const sigmaBelowMean = beforePeak ? modelSigma * 0.78 : modelSigma;
   const sigmaAboveMean = beforePeak ? modelSigma * 1.18 : modelSigma;
@@ -701,6 +717,10 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     weatherReady: Boolean(weather),
     marketReady: market.bins.length > 0,
     modelReady: probs.length === market.bins.length,
+    rulesParsed: Boolean(market.resolutionMetadata?.stationCode),
+    hasCompleteSources: weatherRaw.raw?.strictReady ?? true,
+    weatherFreshnessHours,
+    avgSourceHealthScore,
     totalCapital,
     maxSingleTradePercent
   });
@@ -751,7 +771,8 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
           isOfficial: false,
           dateKey: shanghaiDateKey(new Date()),
           lockAt: null
-        }
+        },
+        constraints
       }),
       outputs: {
         create: finalDecision.binOutputs.map((o) => ({
