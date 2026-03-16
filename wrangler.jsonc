@@ -11,6 +11,13 @@
   "observability": {
     "enabled": true
   },
+  "d1_databases": [
+    {
+      "binding": "polymarket_shanghai",
+      "database_name": "polymarket-shanghai",
+      "database_id": "40fd0cae-9e6c-4f35-b3b1-f088befb4275"
+    }
+  ],
   "vars": {
     "CF_MVP_MODE": "true",
     "NODE_ENV": "production"
