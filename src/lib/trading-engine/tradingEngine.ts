@@ -45,14 +45,15 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const f1 = input.futureTemp1h;
   const f2 = input.futureTemp2h;
   const f3 = input.futureTemp3h;
+  const f4 = input.futureTemp4h;
+  const f5 = input.futureTemp5h;
+  const f6 = input.futureTemp6h;
   const observedMax = input.observedMaxTemp;
+  const futureSeq = [f1, f2, f3, f4, f5, f6].filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
   const futureCooling =
-    f1 != null &&
-    f2 != null &&
-    f3 != null &&
-    f1 <= input.currentTemp + 0.2 &&
-    f2 <= f1 + 0.2 &&
-    f3 <= f2 + 0.2;
+    futureSeq.length >= 3 &&
+    futureSeq[0] <= input.currentTemp + 0.2 &&
+    futureSeq.every((v, i) => (i === 0 ? true : v <= futureSeq[i - 1] + 0.2));
   const lockTriggered =
     isTargetDateToday &&
     isLateSession &&
@@ -74,7 +75,7 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const secondEntryMinProb = Number(process.env.SECOND_ENTRY_MIN_PROB ?? '0.62');
   const consensusStrongPrice = Number(process.env.MARKET_CONSENSUS_STRONG_PRICE ?? '0.65');
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
-  const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.97');
+  const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
   const hasPriorEntry = (input.entryCountForTargetDate ?? 0) >= 1;
   const effectiveMinEdge = hasPriorEntry ? Math.max(minEdgeToTrade, secondEntryMinEdge) : minEdgeToTrade;
   const effectiveMinSideProb = hasPriorEntry ? Math.max(minSideProbToTrade, secondEntryMinProb) : minSideProbToTrade;
@@ -304,8 +305,8 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const secondEntryTipEn = hasPriorEntry
     ? `Second-entry guard is active for this target date (min edge ${(effectiveMinEdge * 100).toFixed(1)}%, min win-rate ${(effectiveMinSideProb * 100).toFixed(0)}%).`
     : '';
-  const lockTip = lockTriggered ? `已触发“晚盘锁温”规则：当前温度与已观测最高温接近，且未来1-3小时偏降温。` : '';
-  const lockTipEn = lockTriggered ? 'Late-session lock rule is active: current temperature is near observed max and next 1-3h trend is cooling.' : '';
+  const lockTip = lockTriggered ? `已触发“晚盘锁温”规则：当前温度与已观测最高温接近，且未来1-6小时偏降温。` : '';
+  const lockTipEn = lockTriggered ? 'Late-session lock rule is active: current temperature is near observed max and next 1-6h trend is cooling.' : '';
   const reasonZh = `目标日全天最高温预测约 ${Math.round(input.maxTempSoFar)}°C，峰值前两小时升温 ${input.tempRise2h.toFixed(1)}°C，时间窗口评分 ${timingScore.toFixed(0)}。模型对 ${best?.outcomeLabel ?? '-'} 的判断已计入价格，${profitabilityTip} 天气稳定度 ${weatherScore.toFixed(0)}，数据质量 ${dataQualityScore.toFixed(0)}，综合建议${decisionZh}。${secondEntryTip}${consensusTip}${lockTip}${mismatchTip}${settleTip}${inactiveTip}`;
   const reasonEn = `Forecast max temperature for target day is about ${Math.round(input.maxTempSoFar)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${secondEntryTipEn}${consensusTipEn}${lockTipEn}${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
   const reason = `${reasonZh}\nEN: ${reasonEn}`;

@@ -4,6 +4,7 @@ export type WeatherSourceInput = {
   sourceName: string;
   rawPredictedMaxTemp: number;
   stationType: StationType;
+  explicitResolutionStation?: boolean;
 };
 
 export type HistoricalCalibration = {
@@ -41,6 +42,7 @@ export type SourceBreakdown = {
   rawPredictedMaxTemp: number;
   adjustedPredictedMaxTemp: number;
   matchScore: number;
+  stationPenaltyScore?: number;
   accuracyScore: number;
   scenarioScore: number;
   regimeScore?: number;

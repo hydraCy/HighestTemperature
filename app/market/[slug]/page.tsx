@@ -225,6 +225,7 @@ export default async function MarketDetailPage({
     };
   });
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
+  const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
   const reasonMeta = fromJsonString<{ calibratedFusedTemp?: number; mostLikelyInteger?: number }>(latestRun?.rawFeaturesJson, {});
   const centerTempRaw = reasonMeta.mostLikelyInteger ?? reasonMeta.calibratedFusedTemp;
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw)
@@ -240,16 +241,27 @@ export default async function MarketDetailPage({
   };
   const allBinsWithGlobalSide = allBins.map((b) => {
     const side = isTargetBin(b.label) ? 'YES' : 'NO';
+    const entryPx = side === 'YES' ? b.marketPrice : b.noMarketPrice;
+    const isNearCertain = entryPx >= skipNearCertainPrice;
+    if (isNearCertain) {
+      return {
+        ...b,
+        bestSide: 'SKIP' as const,
+        bestEdge: Number.NEGATIVE_INFINITY,
+        constrainedEv: null as number | null,
+        isNearCertain
+      };
+    }
     const grossEdge = side === 'YES' ? b.edgeYes : b.edgeNo;
     const constrainedNetEv = b.engineConstrainedEdge ?? (grossEdge - tradingCost);
-    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv };
+    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv, isNearCertain };
   });
-  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.constrainedEv - a.constrainedEv)[0];
+  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => (b.constrainedEv ?? Number.NEGATIVE_INFINITY) - (a.constrainedEv ?? Number.NEGATIVE_INFINITY))[0];
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
   const highProbLabels = new Set(
     allBinsWithGlobalSide
-      .filter((b) => b.constrainedEv >= 0.03 || b.label === latestRun?.bestBin)
+      .filter((b) => (b.constrainedEv ?? Number.NEGATIVE_INFINITY) >= 0.03 || b.label === latestRun?.bestBin)
       .map((b) => b.label),
   );
   const isFocusedBin = (label: string) => {
@@ -406,8 +418,10 @@ export default async function MarketDetailPage({
                     <TableCell>{o.spread != null ? `${(o.spread * 100).toFixed(1)}%` : '-'}</TableCell>
                     <TableCell>{(o.modelProbability * 100).toFixed(1)}%</TableCell>
                     <TableCell>{(o.modelNoProbability * 100).toFixed(1)}%</TableCell>
-                    <TableCell className={o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.constrainedEv.toFixed(3)}</TableCell>
-                    <TableCell>{o.bestSide}</TableCell>
+                    <TableCell className={o.constrainedEv == null ? 'text-muted-foreground' : o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      {o.constrainedEv == null ? '-' : o.constrainedEv.toFixed(3)}
+                    </TableCell>
+                    <TableCell>{o.bestSide === 'SKIP' ? '-' : o.bestSide}</TableCell>
                   </TableRow>
                 ))}
                 {tailBins.length > 0 && (

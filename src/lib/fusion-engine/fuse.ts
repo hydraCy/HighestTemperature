@@ -57,6 +57,7 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
     return {
       sourceName: src.sourceName,
       stationType: src.stationType,
+      explicitResolutionStation: src.explicitResolutionStation,
       rawPredictedMaxTemp: src.rawPredictedMaxTemp,
       adjustedPredictedMaxTemp: applyBiasCalibration(src.rawPredictedMaxTemp, cal.bias),
       mae: cal.mae,
@@ -68,6 +69,11 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
 
   const scored = preAdjusted.map((row) => {
     const mScore = matchScore(row.stationType);
+    const stationPenaltyScore = row.sourceName === 'wunderground_daily'
+      ? 1
+      : row.explicitResolutionStation
+        ? 1
+        : 0.72;
     const aScore = calibrationQualityScore(row.calibration);
     const sScore = scenarioScoreForSource(
       input.scenarioContext,
@@ -78,10 +84,11 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
       ...input.scenarioContext,
       scenarioTag: input.scenarioContext.scenarioTag ?? scenario
     });
-    const rawWeight = mScore * aScore * sScore * rScore;
+    const rawWeight = mScore * stationPenaltyScore * aScore * sScore * rScore;
     return {
       ...row,
       matchScore: mScore,
+      stationPenaltyScore,
       accuracyScore: aScore,
       scenarioScore: sScore,
       regimeScore: rScore,
@@ -97,6 +104,7 @@ export function runFusionEngine(input: FusionInput): FusionOutput {
     rawPredictedMaxTemp: s.rawPredictedMaxTemp,
     adjustedPredictedMaxTemp: s.adjustedPredictedMaxTemp,
     matchScore: Number(s.matchScore.toFixed(4)),
+    stationPenaltyScore: Number(s.stationPenaltyScore.toFixed(4)),
     accuracyScore: Number(s.accuracyScore.toFixed(4)),
     scenarioScore: Number(s.scenarioScore.toFixed(4)),
     regimeScore: Number(s.regimeScore.toFixed(4)),

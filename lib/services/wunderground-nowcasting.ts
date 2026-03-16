@@ -309,7 +309,7 @@ export async function fetchWundergroundNowcasting(input: FetchWuNowcastingInput)
       const future = hourPoints
         .filter((p) => p.at && p.at.getTime() > nowMs)
         .sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0))
-        .slice(0, 3)
+        .slice(0, 6)
         .map((p, i) => ({
           hourOffset: i + 1,
           temp: p.temp,

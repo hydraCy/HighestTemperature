@@ -57,6 +57,33 @@ function shanghaiHourNow(date: Date) {
   );
 }
 
+function normalize(values: number[]) {
+  const sum = values.reduce((a, b) => a + b, 0);
+  if (sum <= 0) {
+    const v = 1 / Math.max(1, values.length);
+    return values.map(() => v);
+  }
+  return values.map((x) => x / sum);
+}
+
+function buildIntegerDistributionFromOutcomeProbabilities(
+  outcomes: Array<{ label: string; probability: number }>,
+  minTemp = 0,
+  maxTemp = 45,
+) {
+  const probs = new Array(maxTemp - minTemp + 1).fill(0);
+  for (const o of outcomes) {
+    const m = o.label.match(/(-?\d+)\s*°C/i);
+    if (!m) continue;
+    const k = Number(m[1]);
+    if (!Number.isFinite(k)) continue;
+    if (k < minTemp || k > maxTemp) continue;
+    probs[k - minTemp] += Math.max(0, o.probability);
+  }
+  const n = normalize(probs);
+  return n.map((p, i) => ({ temp: minTemp + i, probability: p }));
+}
+
 function shanghaiDayRangeUtc(dateKey: string) {
   return {
     start: new Date(`${dateKey}T00:00:00+08:00`),
@@ -484,6 +511,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
         medianHour?: number;
         sampleDays?: number;
       };
+      forecastExplain?: {
+        outcomeProbabilities?: Array<{ label?: string; probability?: number }>;
+      };
     };
   }>(weather.rawJson, {});
   const sourceDailyMax = weatherRaw.raw?.sourceDailyMax as
@@ -503,6 +533,8 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     | undefined;
   const nowcasting = weatherRaw.raw?.nowcasting;
   const learnedPeakWindow = weatherRaw.raw?.learnedPeakWindow;
+  const fusionOutcomeProbabilities = (weatherRaw.raw?.forecastExplain?.outcomeProbabilities ?? [])
+    .filter((x): x is { label: string; probability: number } => typeof x?.label === 'string' && typeof x?.probability === 'number' && Number.isFinite(x.probability));
   const biasAdjusted = await computeBiasAdjustedFusedTarget(sourceDailyMax ?? null);
   const fusedContinuous = biasAdjusted?.fused ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
   const fusedAnchor = sourceDailyMax?.fusedAnchor ?? Math.round(fusedContinuous);
@@ -562,19 +594,69 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     precipitationProb: modelPrecipProb,
     windSpeed: modelWindSpeed
   });
-  const settlementMean = isTargetDateToday
-    ? Math.max(projectedContinuous, todayMaxTemp ?? Number.NEGATIVE_INFINITY)
-    : projectedContinuous;
+  const nowHourLocal = shanghaiHourNow(new Date());
+  const learnedStartHour = Number.isFinite(learnedPeakWindow?.startHour) ? Number(learnedPeakWindow?.startHour) : 13;
+  const learnedEndHour = Number.isFinite(learnedPeakWindow?.endHour) ? Number(learnedPeakWindow?.endHour) : 16;
   const minAllowedInteger = isTargetDateToday && typeof todayMaxTemp === 'number' && Number.isFinite(todayMaxTemp)
     ? Math.round(todayMaxTemp)
     : undefined;
-  const integerDistribution = buildIntegerSettlementDistribution({
-    mean: settlementMean,
+  const futureTemps = (nowcasting?.futureHours ?? [])
+    .slice(0, 6)
+    .map((x) => x.temp)
+    .filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  const forecastFloorInteger = isTargetDateToday && futureTemps.length
+    ? Math.floor(Math.max(...futureTemps))
+    : undefined;
+  const effectiveMinAllowedInteger = [
+    minAllowedInteger,
+    forecastFloorInteger
+  ].filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).reduce((a, b) => Math.max(a, b), Number.NEGATIVE_INFINITY);
+  const finalMinAllowedInteger = Number.isFinite(effectiveMinAllowedInteger) ? effectiveMinAllowedInteger : undefined;
+  const futureCapContinuous = futureTemps.length
+    ? Math.max(modelCurrentTemp, todayMaxTemp ?? Number.NEGATIVE_INFINITY, ...futureTemps) + 0.4
+    : null;
+  const nearLockWindow = isTargetDateToday && nowHourLocal >= Math.max(learnedStartHour, learnedEndHour - 1);
+  const maxAllowedInteger = nearLockWindow && futureCapContinuous != null
+    ? Math.floor(futureCapContinuous)
+    : undefined;
+  const beforePeak = isTargetDateToday && nowHourLocal < learnedStartHour;
+  const sigmaBelowMean = beforePeak ? modelSigma * 0.78 : modelSigma;
+  const sigmaAboveMean = beforePeak ? modelSigma * 1.18 : modelSigma;
+  const baselineFromFusion = fusionOutcomeProbabilities.length > 0
+    ? buildIntegerDistributionFromOutcomeProbabilities(fusionOutcomeProbabilities, 0, 45)
+    : null;
+  const fallbackMean = isTargetDateToday
+    ? Math.max(projectedContinuous, todayMaxTemp ?? Number.NEGATIVE_INFINITY)
+    : projectedContinuous;
+  let integerDistribution = baselineFromFusion ?? buildIntegerSettlementDistribution({
+    mean: fallbackMean,
     sigma: modelSigma,
     minTemp: 0,
     maxTemp: 45,
-    minAllowedInteger
+    minAllowedInteger: finalMinAllowedInteger,
+    maxAllowedInteger,
+    sigmaBelowMean,
+    sigmaAboveMean
   });
+  if (baselineFromFusion) {
+    const pivot = Number.isFinite(fusedAnchor) ? Math.round(fusedAnchor) : Math.round(fallbackMean);
+    const weighted = integerDistribution.map((row) => {
+      if (finalMinAllowedInteger != null && row.temp < finalMinAllowedInteger) return 0;
+      if (maxAllowedInteger != null && row.temp > maxAllowedInteger) return 0;
+      let w = row.probability;
+      if (isTargetDateToday) {
+        if (nowcasting?.scenarioTag === 'suppressed_heating' && row.temp > pivot) {
+          w *= Math.exp(-0.45 * (row.temp - pivot));
+        } else if (beforePeak && row.temp < pivot) {
+          w *= Math.exp(-0.2 * (pivot - row.temp));
+        }
+      }
+      return w;
+    });
+    const normalized = normalize(weighted);
+    integerDistribution = integerDistribution.map((row, i) => ({ ...row, probability: normalized[i] ?? 0 }));
+  }
+  const settlementMean = integerDistribution.reduce((acc, r) => acc + r.temp * r.probability, 0);
   const probs = mapIntegerDistributionToBins(
     market.bins.map((b) => b.outcomeLabel),
     integerDistribution
@@ -590,6 +672,9 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
     futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
     futureTemp3h: nowcasting?.futureHours?.[2]?.temp,
+    futureTemp4h: nowcasting?.futureHours?.[3]?.temp,
+    futureTemp5h: nowcasting?.futureHours?.[4]?.temp,
+    futureTemp6h: nowcasting?.futureHours?.[5]?.temp,
     learnedPeakWindowStartHour: learnedPeakWindow?.startHour,
     learnedPeakWindowEndHour: learnedPeakWindow?.endHour,
     currentTemp: modelCurrentTemp,

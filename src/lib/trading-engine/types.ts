@@ -31,6 +31,9 @@ export type TradingInput = {
   futureTemp1h?: number;
   futureTemp2h?: number;
   futureTemp3h?: number;
+  futureTemp4h?: number;
+  futureTemp5h?: number;
+  futureTemp6h?: number;
   learnedPeakWindowStartHour?: number;
   learnedPeakWindowEndHour?: number;
   currentTemp: number;

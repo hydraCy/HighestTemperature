@@ -893,15 +893,16 @@ async function buildAssistFromTargetDay(
   const rowDailyMax = toResolutionInt(rowDailyMaxRaw) ?? 0;
 
   const fusionExcluded = fusionExcludedSourcesFromEnv();
-  const fusionSources: WeatherSourceInput[] = [
-    wuDailyMax != null ? { sourceName: 'wunderground_daily', rawPredictedMaxTemp: wuDailyMax, stationType: 'exact_station' } : null,
-    nwsDailyMaxRaw != null ? { sourceName: 'nws_hourly', rawPredictedMaxTemp: nwsDailyMaxRaw, stationType: 'grid_point' } : null,
-    wttrDailyMaxRaw != null ? { sourceName: 'wttr', rawPredictedMaxTemp: wttrDailyMaxRaw, stationType: 'city_level' } : null,
-    metNoDailyMaxRaw != null ? { sourceName: 'met_no', rawPredictedMaxTemp: metNoDailyMaxRaw, stationType: 'grid_point' } : null,
-    weatherApiDailyMax != null ? { sourceName: 'weatherapi', rawPredictedMaxTemp: weatherApiDailyMax, stationType: 'city_level' } : null,
-    qWeatherDailyMax != null ? { sourceName: 'qweather', rawPredictedMaxTemp: qWeatherDailyMax, stationType: 'city_level' } : null
+  const fusionSources = [
+    wuDailyMax != null ? { sourceName: 'wunderground_daily', rawPredictedMaxTemp: wuDailyMax, stationType: 'exact_station' as const, explicitResolutionStation: true } : null,
+    nwsDailyMaxRaw != null ? { sourceName: 'nws_hourly', rawPredictedMaxTemp: nwsDailyMaxRaw, stationType: 'grid_point' as const, explicitResolutionStation: false } : null,
+    wttrDailyMaxRaw != null ? { sourceName: 'wttr', rawPredictedMaxTemp: wttrDailyMaxRaw, stationType: 'city_level' as const, explicitResolutionStation: false } : null,
+    metNoDailyMaxRaw != null ? { sourceName: 'met_no', rawPredictedMaxTemp: metNoDailyMaxRaw, stationType: 'grid_point' as const, explicitResolutionStation: false } : null,
+    weatherApiDailyMax != null ? { sourceName: 'weatherapi', rawPredictedMaxTemp: weatherApiDailyMax, stationType: 'city_level' as const, explicitResolutionStation: false } : null,
+    qWeatherDailyMax != null ? { sourceName: 'qweather', rawPredictedMaxTemp: qWeatherDailyMax, stationType: 'city_level' as const, explicitResolutionStation: false } : null
   ]
-    .filter((x): x is WeatherSourceInput => Boolean(x))
+    .filter((x): x is NonNullable<typeof x> => x != null)
+    .map((x): WeatherSourceInput => x)
     .filter((x) => !fusionExcluded.has(x.sourceName.toLowerCase()));
   const calibrations = await loadFusionCalibrations({
     scenarioTag: nowcasting.scenarioTag,
@@ -1020,6 +1021,12 @@ async function buildAssistFromTargetDay(
               accuracyScore: s.accuracyScore,
               scenarioScore: s.scenarioScore,
               regimeScore: s.regimeScore ?? 1
+            }))
+          : [],
+        outcomeProbabilities: fusionOutput
+          ? fusionOutput.outcomeProbabilities.map((o) => ({
+              label: o.label,
+              probability: Number(o.probability.toFixed(6))
             }))
           : [],
         zh: fusionOutput
@@ -1393,7 +1400,7 @@ function buildNowcastingContext(
     ? Math.max(0, Math.min(100, current.rainProb))
     : (current.precip > 0 ? 55 : 10);
 
-  const fallbackFuture = [1, 2, 3].map((offset) => {
+  const fallbackFuture = [1, 2, 3, 4, 5, 6].map((offset) => {
     const row = pickHour(timeline, nowHour + offset) ?? current;
     const pProb = row.rainProb != null && Number.isFinite(row.rainProb)
       ? Math.max(0, Math.min(100, row.rainProb))
@@ -1409,7 +1416,7 @@ function buildNowcastingContext(
   });
 
   const precipitationProb = wuNowcasting?.precipitationProb ?? fallbackPrecipitationProb;
-  const future = (wuNowcasting?.futureHours?.length ? wuNowcasting.futureHours.slice(0, 3).map((x) => ({
+  const future = (wuNowcasting?.futureHours?.length ? wuNowcasting.futureHours.slice(0, 6).map((x) => ({
     hourOffset: x.hourOffset,
     temp: x.temp ?? current.temp,
     cloudCover: x.cloudCover ?? current.cloud,

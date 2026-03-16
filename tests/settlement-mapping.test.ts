@@ -30,3 +30,35 @@ test('observed max hard floor should zero out impossible lower integers', () => 
   const lowMass = dist.filter((r) => r.temp < 16).reduce((s, r) => s + r.probability, 0);
   assert.equal(lowMass, 0);
 });
+
+test('hard ceiling should zero out impossible higher integers', () => {
+  const dist = buildIntegerSettlementDistribution({
+    mean: 15.2,
+    sigma: 1.2,
+    minTemp: 10,
+    maxTemp: 20,
+    maxAllowedInteger: 15
+  });
+  const highMass = dist.filter((r) => r.temp > 15).reduce((s, r) => s + r.probability, 0);
+  assert.equal(highMass, 0);
+});
+
+test('asymmetric sigma should reduce left-tail mass before peak', () => {
+  const symmetric = buildIntegerSettlementDistribution({
+    mean: 12,
+    sigma: 1.6,
+    minTemp: 8,
+    maxTemp: 16
+  });
+  const asymmetric = buildIntegerSettlementDistribution({
+    mean: 12,
+    sigma: 1.6,
+    sigmaBelowMean: 1.0,
+    sigmaAboveMean: 2.0,
+    minTemp: 8,
+    maxTemp: 16
+  });
+  const symLeft = symmetric.filter((r) => r.temp <= 10).reduce((s, r) => s + r.probability, 0);
+  const asymLeft = asymmetric.filter((r) => r.temp <= 10).reduce((s, r) => s + r.probability, 0);
+  assert.ok(asymLeft < symLeft);
+});

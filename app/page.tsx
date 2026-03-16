@@ -122,7 +122,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           precipProb: 'Precip Probability',
           wind: 'Wind',
           windDir: 'Wind Dir',
-          future1to3h: 'Next 1-3h Forecast',
+          future1to3h: 'Next 1-6h Forecast',
           scenarioTag: 'Scenario',
           weatherMaturity: 'Weather Maturity Score',
           learnedPeakWindow: 'Learned Peak Window (30d ZSPD)',
@@ -146,6 +146,16 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           confidence: 'Confidence',
           forecastConfidence: { high: 'High', medium: 'Medium', low: 'Low' },
           opportunityRanking: 'Top Profit Opportunities (Net EV)',
+          coveragePanel: 'Coverage Arbitrage (Near Peak)',
+          coverageDesc: 'Buy adjacent YES bins near target temperature. If total ask < 1 after costs, basket can be profitable.',
+          coverageLegs: 'Legs',
+          coverageCost: 'Total Ask',
+          coverageProb: 'Cover Prob',
+          coverageGross: 'Gross EV',
+          coverageNet: 'Net EV',
+          coveragePayout: 'Win Payout',
+          coverageBest: 'Best Coverage',
+          coverageNoEdge: 'No positive coverage edge currently.',
           actionableTop3: 'Actionable Priority (Top 3)',
           lockHintTitle: 'Lock-Temperature Gate',
           lockLikely: 'Likely locked near settlement; avoid contrarian bets.',
@@ -293,7 +303,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           precipProb: '降雨概率',
           wind: '风速',
           windDir: '风向',
-          future1to3h: '未来1-3小时',
+          future1to3h: '未来1-6小时',
           scenarioTag: '场景标签',
           weatherMaturity: '天气成熟度评分',
           learnedPeakWindow: '近30天学习峰值窗口(ZSPD)',
@@ -317,6 +327,16 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           confidence: '置信度',
           forecastConfidence: { high: '高', medium: '中', low: '低' },
           opportunityRanking: '最可能赚钱机会（按净EV）',
+          coveragePanel: '覆盖套利（峰值附近）',
+          coverageDesc: '买入目标温度附近相邻 YES 盘口。若总 ask 在扣成本后低于 1，组合有机会盈利。',
+          coverageLegs: '覆盖组合',
+          coverageCost: '总成本',
+          coverageProb: '覆盖概率',
+          coverageGross: '毛EV',
+          coverageNet: '净EV',
+          coveragePayout: '命中回款',
+          coverageBest: '最佳覆盖',
+          coverageNoEdge: '当前暂无正净EV的覆盖组合。',
           actionableTop3: '可执行优先级（Top 3）',
           lockHintTitle: '锁温门槛提示',
           lockLikely: '接近结算且温度大概率锁定，避免逆向下注。',
@@ -515,6 +535,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     };
   });
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
+  const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
   const centerTempRaw = decisionMeta.mostLikelyInteger ?? decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? null;
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw) ? Math.round(centerTempRaw) : null;
   const isTargetBin = (label: string) => {
@@ -527,15 +548,26 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   };
   const allBinsWithGlobalSide = allBins.map((b) => {
     const side = isTargetBin(b.label) ? 'YES' : 'NO';
+    const entryPx = side === 'YES' ? b.marketPrice : b.noMarketPrice;
+    const isNearCertain = entryPx >= skipNearCertainPrice;
+    if (isNearCertain) {
+      return {
+        ...b,
+        bestSide: 'SKIP' as const,
+        bestEdge: Number.NEGATIVE_INFINITY,
+        constrainedEv: null as number | null,
+        isNearCertain
+      };
+    }
     const grossEdge = side === 'YES' ? b.edgeYes : b.edgeNo;
     const constrainedNetEv = b.engineConstrainedEdge ?? (grossEdge - tradingCost);
-    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv };
+    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv, isNearCertain };
   });
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
   const highProbLabels = new Set(
     allBinsWithGlobalSide
-      .filter((b) => b.constrainedEv >= 0.03 || b.label === data?.latestDecision?.recommendedBin)
+      .filter((b) => (b.constrainedEv ?? Number.NEGATIVE_INFINITY) >= 0.03 || b.label === data?.latestDecision?.recommendedBin)
       .map((b) => b.label),
   );
   const isFocusedBin = (label: string) => {
@@ -549,14 +581,60 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   };
   const focusedBins = allBinsWithGlobalSide.filter((b) => isFocusedBin(b.label));
   const tailBins = allBinsWithGlobalSide.filter((b) => !isFocusedBin(b.label));
-  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.constrainedEv - a.constrainedEv)[0];
+  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => (b.constrainedEv ?? Number.NEGATIVE_INFINITY) - (a.constrainedEv ?? Number.NEGATIVE_INFINITY))[0];
   const rankingBaseBins = focusedBins.length > 0 ? focusedBins : allBinsWithGlobalSide;
+  const coverageBaseBins = (focusedBins.length > 0 ? focusedBins : allBinsWithGlobalSide)
+    .filter((b) => b.marketPrice < skipNearCertainPrice && b.noMarketPrice < skipNearCertainPrice)
+    .map((b, idx) => ({
+      ...b,
+      idx,
+      parsed: parseTemperatureBin(b.label),
+    }));
+  const binRepTemp = (label: string) => {
+    const p = parseTemperatureBin(label);
+    if (p.min != null && p.max != null) return (p.min + p.max) / 2;
+    if (p.min != null && p.max == null) return p.min + 1;
+    if (p.min == null && p.max != null) return p.max - 1;
+    return null;
+  };
+  const coverageRows = [2, 3]
+    .flatMap((windowSize) => {
+      if (coverageBaseBins.length < windowSize) return [];
+      const rows: Array<{
+        labels: string[];
+        cost: number;
+        coverProb: number;
+        grossEdge: number;
+        netEdge: number;
+        payoutIfHit: number;
+        dist: number;
+      }> = [];
+      for (let i = 0; i <= coverageBaseBins.length - windowSize; i += 1) {
+        const legs = coverageBaseBins.slice(i, i + windowSize);
+        const labels = legs.map((x) => x.label);
+        const cost = legs.reduce((s, x) => s + x.marketPrice, 0);
+        const coverProb = legs.reduce((s, x) => s + x.modelProbability, 0);
+        const grossEdge = coverProb - cost;
+        const netEdge = grossEdge - tradingCost * windowSize;
+        const payoutIfHit = 1 - cost;
+        const reps = labels.map((l) => binRepTemp(l)).filter((x): x is number => typeof x === 'number');
+        const center = reps.length ? reps.reduce((a, b) => a + b, 0) / reps.length : Number.POSITIVE_INFINITY;
+        const dist = centerTemp != null && Number.isFinite(center) ? Math.abs(center - centerTemp) : 0;
+        rows.push({ labels, cost, coverProb, grossEdge, netEdge, payoutIfHit, dist });
+      }
+      return rows;
+    })
+    .filter((r) => r.cost > 0 && r.cost < 1.2)
+    .sort((a, b) => b.netEdge - a.netEdge || a.dist - b.dist || a.cost - b.cost)
+    .slice(0, 8);
+  const bestCoverage = coverageRows.find((r) => r.netEdge > 0) ?? null;
   const opportunityRows = [...rankingBaseBins]
+    .filter((b) => b.bestSide === 'YES' || b.bestSide === 'NO')
     .map((b) => {
       const side = b.bestSide;
       const modelProb = side === 'YES' ? b.modelProbability : b.modelNoProbability;
       const marketPx = side === 'YES' ? b.marketPrice : b.noMarketPrice;
-      const netEdge = b.constrainedEv;
+      const netEdge = b.constrainedEv ?? Number.NEGATIVE_INFINITY;
       const grossEdge = netEdge + tradingCost;
       return { label: b.label, side, modelProb, marketPx, grossEdge, netEdge };
     })
@@ -599,8 +677,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const minutesToSettlement = data?.marketStatus?.minutesToSettlement ?? null;
   const nearSettlement = typeof minutesToSettlement === 'number' && minutesToSettlement <= 180;
   const futureCapped =
-    (nowcasting?.futureHours ?? []).slice(0, 3).length > 0 &&
-    (nowcasting?.futureHours ?? []).slice(0, 3).every((h) => h.temp <= (nowcasting?.todayMaxTemp ?? Number.POSITIVE_INFINITY) + 0.2);
+    (nowcasting?.futureHours ?? []).slice(0, 6).length > 0 &&
+    (nowcasting?.futureHours ?? []).slice(0, 6).every((h) => h.temp <= (nowcasting?.todayMaxTemp ?? Number.POSITIVE_INFINITY) + 0.2);
   const stalledRise = (nowcasting?.tempRise1h ?? 0) <= 0;
   const lockLikely = Boolean(
     data?.marketStatus?.isSettled ||
@@ -721,7 +799,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <div className="rounded border border-border/60 p-2">
             <p className="mb-1 text-xs font-medium">{t.future1to3h}</p>
             <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
-              {(nowcasting?.futureHours ?? []).slice(0, 3).map((f) => (
+              {(nowcasting?.futureHours ?? []).slice(0, 6).map((f) => (
                 <div key={f.hourOffset} className="rounded border border-border/40 p-2 text-xs">
                   <p>+{f.hourOffset}h</p>
                   <p>{f.temp.toFixed(1)}°C</p>
@@ -921,6 +999,45 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
               </table>
             </div>
 
+            <div className="rounded border border-border/60 p-2">
+              <p className="mb-1 text-xs font-medium">{t.coveragePanel}</p>
+              <p className="mb-2 text-[11px] text-muted-foreground">{t.coverageDesc}</p>
+              {bestCoverage ? (
+                <p className="mb-2 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300">
+                  {t.coverageBest}: {bestCoverage.labels.join(' + ')} | {t.coverageNet} {bestCoverage.netEdge.toFixed(3)}
+                </p>
+              ) : (
+                <p className="mb-2 rounded border border-border/60 px-2 py-1 text-[11px] text-muted-foreground">{t.coverageNoEdge}</p>
+              )}
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="text-left">{t.coverageLegs}</th>
+                    <th className="text-left">{t.coverageCost}</th>
+                    <th className="text-left">{t.coverageProb}</th>
+                    <th className="text-left">{t.coveragePayout}</th>
+                    <th className="text-left">{t.coverageNet}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverageRows.map((r) => (
+                    <tr key={r.labels.join('|')} className="border-t border-border/40">
+                      <td>{r.labels.join(' + ')}</td>
+                      <td>{(r.cost * 100).toFixed(1)}%</td>
+                      <td>{(r.coverProb * 100).toFixed(1)}%</td>
+                      <td className={r.payoutIfHit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{(r.payoutIfHit * 100).toFixed(1)}%</td>
+                      <td className={r.netEdge >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{r.netEdge.toFixed(3)}</td>
+                    </tr>
+                  ))}
+                  {coverageRows.length === 0 && (
+                    <tr className="border-t border-border/40">
+                      <td colSpan={5} className="py-2 text-muted-foreground">-</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
             <div className="rounded border border-border/60 p-2 text-xs">
               <p className="mb-2 font-medium">{t.sourceBiasTitle}</p>
               <div className="space-y-1">
@@ -1024,8 +1141,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
                   <td>{o.spread != null ? `${(o.spread * 100).toFixed(1)}%` : '-'}</td>
                   <td>{(o.modelProbability * 100).toFixed(1)}%</td>
                   <td>{(o.modelNoProbability * 100).toFixed(1)}%</td>
-                  <td className={o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{o.constrainedEv.toFixed(3)}</td>
-                  <td>{o.bestSide}</td>
+                  <td className={o.constrainedEv == null ? 'text-muted-foreground' : o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                    {o.constrainedEv == null ? '-' : o.constrainedEv.toFixed(3)}
+                  </td>
+                  <td>{o.bestSide === 'SKIP' ? '-' : o.bestSide}</td>
                 </tr>
               ))}
               {tailBins.length > 0 && (
