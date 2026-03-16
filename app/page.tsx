@@ -423,6 +423,25 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
 
   const { getDashboardData } = await import('@/lib/services/query');
   const data = await getDashboardData();
+  if (!data) {
+    return (
+      <SiteShell currentPath="/" lang={lang}>
+        <Card>
+          <CardHeader>
+            <CardTitle>{lang === 'en' ? 'No Data Yet' : '暂无数据'}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>
+              {lang === 'en'
+                ? 'D1 is connected but has no market snapshots yet.'
+                : 'D1 已连接，但当前还没有市场快照数据。'}
+            </p>
+            <MvpLivePanels lang={lang} />
+          </CardContent>
+        </Card>
+      </SiteShell>
+    );
+  }
   const sourceLabel = (s?: string) => (s === 'api' ? t.apiLive : t.unknown);
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
   const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data?.latestWeather?.rawJson, {});

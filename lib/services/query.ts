@@ -1,8 +1,9 @@
-import { prisma } from '@/lib/db';
+import { getDashboardDataD1, getMarketDetailD1 } from '@/lib/services/query-d1';
 import { fromJsonString } from '@/lib/utils/json';
-import { Prisma } from '@prisma/client';
 
-const SHANGHAI_TEMP_MARKET_WHERE: Prisma.MarketWhereInput = {
+const USE_D1 = process.env.CF_USE_D1 === 'true';
+
+const SHANGHAI_TEMP_MARKET_WHERE = {
   cityName: 'Shanghai',
   OR: [
     { marketSlug: { contains: 'highest-temperature-in-shanghai' } },
@@ -23,6 +24,8 @@ function marketStatusOf(market: { targetDate: Date; isActive: boolean }) {
 }
 
 export async function getDashboardData() {
+  if (USE_D1) return getDashboardDataD1();
+  const { prisma } = await import('@/lib/db');
   const market = await prisma.market.findFirst({
     where: SHANGHAI_TEMP_MARKET_WHERE,
     include: {
@@ -81,6 +84,8 @@ export async function getDashboardData() {
 }
 
 export async function getMarketDetail(slug: string) {
+  if (USE_D1) return getMarketDetailD1(slug);
+  const { prisma } = await import('@/lib/db');
   const market = await prisma.market.findUnique({
     where: { marketSlug: slug },
     include: {

@@ -20,6 +20,8 @@
     "jobs": "tsx scripts/cron.ts",
     "job:once": "tsx scripts/run-job-once.ts",
     "compare:openmeteo-wu": "tsx scripts/compare-openmeteo-wunderground.ts",
+    "d1:backfill:generate": "tsx scripts/backfill-d1-from-sqlite.ts",
+    "d1:backfill:apply": "WRANGLER_HOME=.wrangler wrangler d1 execute polymarket-shanghai --remote --file migrations/0002_backfill_latest_market.sql",
     "test": "tsx --test tests/*.test.ts"
   },
   "prisma": {

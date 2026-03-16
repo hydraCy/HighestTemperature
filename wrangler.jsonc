@@ -19,7 +19,8 @@
     }
   ],
   "vars": {
-    "CF_MVP_MODE": "true",
+    "CF_MVP_MODE": "false",
+    "CF_USE_D1": "true",
     "NODE_ENV": "production"
   }
 }
