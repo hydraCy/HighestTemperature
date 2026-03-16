@@ -6,7 +6,6 @@ import { SiteShell } from '@/components/layout/site-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { getMarketDetail } from '@/lib/services/query';
 import { NoteInput } from '@/components/market/note-input';
 import { fromJsonString } from '@/lib/utils/json';
 import { TempTrendChart, BinEdgeChart } from '@/components/charts/market-charts';
@@ -22,6 +21,7 @@ export default async function MarketDetailPage({
   params: Promise<{ slug: string }>;
   searchParams: DetailSearchParams;
 }) {
+  const isCloudflareMvpMode = process.env.CF_MVP_MODE === 'true';
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
   const t =
@@ -188,6 +188,31 @@ export default async function MarketDetailPage({
         };
 
   const { slug } = await params;
+  if (isCloudflareMvpMode) {
+    return (
+      <SiteShell currentPath={`/market/${slug}`} lang={lang}>
+        <Card>
+          <CardHeader>
+            <CardTitle>{lang === 'en' ? 'Market Detail (MVP)' : '市场详情（MVP）'}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>
+              {lang === 'en'
+                ? `Route is available: /market/${slug}`
+                : `路由可访问：/market/${slug}`}
+            </p>
+            <p>
+              {lang === 'en'
+                ? 'Database-backed detail, notes, and model snapshots are temporarily disabled during Cloudflare MVP rollout.'
+                : '基于数据库的详情、笔记和模型快照在 Cloudflare MVP 阶段暂时停用。'}
+            </p>
+          </CardContent>
+        </Card>
+      </SiteShell>
+    );
+  }
+
+  const { getMarketDetail } = await import('@/lib/services/query');
   const data = await getMarketDetail(slug);
   if (!data) return notFound();
   if (!data.isLatestMarket && data.latestMarketSlug) {

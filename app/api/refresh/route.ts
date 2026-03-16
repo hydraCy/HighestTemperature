@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
-import { syncAllNow } from '@/lib/services/refresh-service';
 
 export async function POST() {
+  if (process.env.CF_MVP_MODE === 'true') {
+    return NextResponse.json(
+      { ok: false, message: 'Cloudflare MVP 模式下该接口暂不可用' },
+      { status: 501 }
+    );
+  }
   try {
+    const { syncAllNow } = await import('@/lib/services/refresh-service');
     const result = await syncAllNow();
     return NextResponse.json({ ok: true, decision: result?.decision?.decision ?? null });
   } catch (error) {

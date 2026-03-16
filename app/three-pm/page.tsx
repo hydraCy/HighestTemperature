@@ -4,7 +4,6 @@ import { format } from 'date-fns';
 import { SiteShell } from '@/components/layout/site-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getDashboardData } from '@/lib/services/query';
 import { fromJsonString } from '@/lib/utils/json';
 
 type PageSearchParams = Promise<{ lang?: string | string[] }>;
@@ -24,6 +23,7 @@ function toShanghaiDateKey(date: Date) {
 }
 
 export default async function ThreePmPage({ searchParams }: { searchParams: PageSearchParams }) {
+  const isCloudflareMvpMode = process.env.CF_MVP_MODE === 'true';
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
   const t = lang === 'en'
@@ -76,8 +76,26 @@ export default async function ThreePmPage({ searchParams }: { searchParams: Page
         gateConsensus: '主共识冲突',
         gateSecondEntry: '二次入场保护',
         noData: '暂无市场数据。'
-      };
+    };
 
+  if (isCloudflareMvpMode) {
+    return (
+      <SiteShell currentPath="/three-pm" lang={lang}>
+        <Card>
+          <CardHeader>
+            <CardTitle>{lang === 'en' ? '3PM Scan (MVP)' : '3PM 扫盘（MVP）'}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
+            {lang === 'en'
+              ? 'This page is online on Cloudflare Workers, but real-time market/weather/model data is temporarily disabled in MVP mode.'
+              : '该页面已在 Cloudflare Workers 上线，但 MVP 阶段暂时禁用了实时市场/天气/模型数据。'}
+          </CardContent>
+        </Card>
+      </SiteShell>
+    );
+  }
+
+  const { getDashboardData } = await import('@/lib/services/query');
   const data = await getDashboardData();
   if (!data) {
     return (

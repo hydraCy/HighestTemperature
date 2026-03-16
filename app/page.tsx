@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RefreshAllButton } from '@/components/market/refresh-all-button';
 import { LiveMarketPoller } from '@/components/market/live-market-poller';
-import { getDashboardData } from '@/lib/services/query';
+import { MvpLivePanels } from '@/components/market/mvp-live-panels';
 import { fromJsonString } from '@/lib/utils/json';
 import { riskLabel } from '@/lib/i18n/risk-labels';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
@@ -17,6 +17,7 @@ import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
 type PageSearchParams = Promise<{ lang?: string | string[] }>;
 
 export default async function HomePage({ searchParams }: { searchParams: PageSearchParams }) {
+  const isCloudflareMvpMode = process.env.CF_MVP_MODE === 'true';
   const toShanghaiDateKey = (date: Date) => {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Shanghai',
@@ -395,7 +396,32 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           apiLive: '实时API',
           unknown: '未知'
         };
+  if (isCloudflareMvpMode) {
+    return (
+      <SiteShell currentPath="/" lang={lang}>
+        <Card>
+          <CardHeader>
+            <CardTitle>{lang === 'en' ? 'Cloudflare MVP Mode' : 'Cloudflare MVP 模式'}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>
+              {lang === 'en'
+                ? 'Site routing and static assets are online. Data pipeline APIs are temporarily disabled during migration.'
+                : '站点路由与静态资源已上线。迁移期间数据流水线接口暂时停用。'}
+            </p>
+            <p>
+              {lang === 'en'
+                ? 'Next step: migrate lightweight read-only APIs to Workers, then reconnect model outputs.'
+                : '下一步：先迁移轻量只读 API 到 Workers，再接回模型与决策输出。'}
+            </p>
+          </CardContent>
+        </Card>
+        <MvpLivePanels lang={lang} />
+      </SiteShell>
+    );
+  }
 
+  const { getDashboardData } = await import('@/lib/services/query');
   const data = await getDashboardData();
   const sourceLabel = (s?: string) => (s === 'api' ? t.apiLive : t.unknown);
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);

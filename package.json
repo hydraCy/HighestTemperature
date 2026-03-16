@@ -6,6 +6,11 @@
     "dev": "sh -c 'npm run job:once -- all || true; next dev'",
     "build": "next build",
     "start": "next start",
+    "preview": "WRANGLER_HOME=.wrangler opennextjs-cloudflare build && WRANGLER_HOME=.wrangler opennextjs-cloudflare preview",
+    "deploy": "WRANGLER_HOME=.wrangler opennextjs-cloudflare build && WRANGLER_HOME=.wrangler opennextjs-cloudflare deploy",
+    "cf:build": "WRANGLER_HOME=.wrangler opennextjs-cloudflare build",
+    "cf:dev": "opennextjs-cloudflare build && WRANGLER_HOME=.wrangler wrangler dev",
+    "cf:deploy": "opennextjs-cloudflare build && WRANGLER_HOME=.wrangler wrangler deploy",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
@@ -37,6 +42,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.17.1",
     "@types/node": "^22.13.8",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",
@@ -48,6 +54,7 @@
     "prisma": "^6.6.0",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "wrangler": "^4.74.0"
   }
 }
