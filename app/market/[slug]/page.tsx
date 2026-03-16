@@ -220,9 +220,11 @@ export default async function MarketDetailPage({
       edgeNo,
       bestEdge: Math.max(edgeYes, edgeNo),
       bestSide: 'YES' as const,
-      edge: out?.edge ?? 0
+      edge: out?.edge ?? 0,
+      engineConstrainedEdge: typeof out?.edge === 'number' ? out.edge : null
     };
   });
+  const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
   const reasonMeta = fromJsonString<{ calibratedFusedTemp?: number; mostLikelyInteger?: number }>(latestRun?.rawFeaturesJson, {});
   const centerTempRaw = reasonMeta.mostLikelyInteger ?? reasonMeta.calibratedFusedTemp;
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw)
@@ -238,10 +240,11 @@ export default async function MarketDetailPage({
   };
   const allBinsWithGlobalSide = allBins.map((b) => {
     const side = isTargetBin(b.label) ? 'YES' : 'NO';
-    const edge = side === 'YES' ? b.edgeYes : b.edgeNo;
-    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: edge, constrainedEv: edge };
+    const grossEdge = side === 'YES' ? b.edgeYes : b.edgeNo;
+    const constrainedNetEv = b.engineConstrainedEdge ?? (grossEdge - tradingCost);
+    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv };
   });
-  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.bestEdge - a.bestEdge)[0];
+  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.constrainedEv - a.constrainedEv)[0];
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
   const highProbLabels = new Set(

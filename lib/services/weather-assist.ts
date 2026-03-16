@@ -291,6 +291,11 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
   let aviationMetar: AviationMetarPoint | null = null;
   let aviationTaf: AviationTafPoint | null = null;
   let weatherApiDailyMax: number | null = null;
+  let weatherApiMeta: { matchedDate: string | null; availableDates: string[]; field: 'maxtemp_c' } = {
+    matchedDate: null,
+    availableDates: [],
+    field: 'maxtemp_c'
+  };
   let qWeatherDailyMax: number | null = null;
   let wuDailyMax: number | null = null;
   let wuNowcasting: WundergroundNowcasting | null = null;
@@ -430,11 +435,19 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
       }
     } else {
       try {
-        weatherApiDailyMax = parseWeatherApiDailyMax(weatherApiSchema.parse(weatherApiRes.value), targetKey);
+        const parsedWeatherApi = parseWeatherApiDailyMax(weatherApiSchema.parse(weatherApiRes.value), targetKey);
+        weatherApiDailyMax = parsedWeatherApi.value;
+        weatherApiMeta = {
+          matchedDate: parsedWeatherApi.matchedDate,
+          availableDates: parsedWeatherApi.availableDates,
+          field: parsedWeatherApi.field
+        };
         apiStatus.weatherapi = {
           status: weatherApiDailyMax == null ? 'no_data' : 'ok',
           hasData: weatherApiDailyMax != null,
-          reason: weatherApiDailyMax == null ? '目标日未返回最高温' : undefined
+          reason: weatherApiDailyMax == null
+            ? `目标日(${targetKey})未返回最高温；可用日期: ${weatherApiMeta.availableDates.join(', ') || '-'}；字段: ${weatherApiMeta.field}`
+            : `命中日期 ${weatherApiMeta.matchedDate}；字段 ${weatherApiMeta.field}=${weatherApiDailyMax.toFixed(1)}°C`
         };
         if (weatherApiDailyMax == null) {
           if (strictRequiredSources.includes('weatherapi')) {
@@ -547,7 +560,8 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date): Promise<{ d
     sourceGroups: {
       free: ['wunderground_daily', 'aviationweather', 'wttr', 'met_no'],
       paid: ['weatherapi', 'qweather']
-    }
+    },
+    weatherapiMeta: weatherApiMeta
   }, weatherApiDailyMax, qWeatherDailyMax, wuNowcasting, wuDailyMax, wuPeakWindow, aviationMetar, aviationTaf);
 
   return { source: 'api', data };
@@ -797,13 +811,21 @@ async function parseWttrSuggestedLocation(url: string, timeoutMs: number) {
   }
 }
 
-function parseWeatherApiDailyMax(payload: z.infer<typeof weatherApiSchema>, targetDateKey: string): number | null {
+function parseWeatherApiDailyMax(payload: z.infer<typeof weatherApiSchema>, targetDateKey: string): {
+  value: number | null;
+  matchedDate: string | null;
+  availableDates: string[];
+  field: 'maxtemp_c';
+} {
+  const availableDates = (payload.forecast?.forecastday ?? []).map((d) => d.date);
   for (const d of payload.forecast?.forecastday ?? []) {
     if (d.date !== targetDateKey) continue;
     const val = Number(d.day.maxtemp_c);
-    if (Number.isFinite(val)) return val;
+    if (Number.isFinite(val)) {
+      return { value: val, matchedDate: d.date, availableDates, field: 'maxtemp_c' };
+    }
   }
-  return null;
+  return { value: null, matchedDate: null, availableDates, field: 'maxtemp_c' };
 }
 
 function parseQWeatherDailyMax(payload: z.infer<typeof qWeatherSchema>, targetDateKey: string): number | null {

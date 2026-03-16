@@ -7,6 +7,8 @@ type ProbabilityInput = {
   observedMaxTemp?: number;
   forecastAnchorTemp?: number;
   isTargetDateToday?: boolean;
+  nowHourLocal?: number;
+  peakWindowStartHour?: number;
   futureTemp1h?: number;
   futureTemp2h?: number;
   futureTemp3h?: number;
@@ -33,7 +35,12 @@ export function estimateProjectedFinalTemperature(input: Omit<ProbabilityInput, 
   const futureTemps = [input.futureTemp1h, input.futureTemp2h, input.futureTemp3h].filter(
     (x): x is number => typeof x === 'number' && Number.isFinite(x),
   );
-  const futureCap = futureTemps.length
+  const shortTermCapStartHour = Math.max(11, (input.peakWindowStartHour ?? 13) - 1);
+  const shouldApplyShortTermCap = Boolean(input.isTargetDateToday)
+    && (typeof input.nowHourLocal === 'number'
+      ? input.nowHourLocal >= shortTermCapStartHour
+      : true);
+  const futureCap = (shouldApplyShortTermCap && futureTemps.length)
     ? Math.max(input.maxTempSoFar, input.currentTemp, ...futureTemps) + 0.4
     : Number.POSITIVE_INFINITY;
   return Math.min(projectedFinalRaw, futureCap);

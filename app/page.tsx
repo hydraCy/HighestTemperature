@@ -446,8 +446,27 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const decisionMeta = (data?.latestDecision?.reasonMeta ?? {}) as {
     calibratedFusedTemp?: number;
     mostLikelyInteger?: number;
+    settlementMean?: number;
     sourceCalibration?: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }>;
   };
+  const decisionForecastInteger =
+    typeof decisionMeta.mostLikelyInteger === 'number' && Number.isFinite(decisionMeta.mostLikelyInteger)
+      ? Math.round(decisionMeta.mostLikelyInteger)
+      : null;
+  const decisionForecastContinuous =
+    typeof decisionMeta.settlementMean === 'number' && Number.isFinite(decisionMeta.settlementMean)
+      ? decisionMeta.settlementMean
+      : null;
+  const panelForecastInteger =
+    decisionForecastInteger ??
+    (typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
+      ? Math.round(sourceDailyMax.fusedAnchor)
+      : null);
+  const panelForecastContinuous =
+    decisionForecastContinuous ??
+    (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
+      ? sourceDailyMax.fusedContinuous
+      : null);
   const statusLabel = (s?: string) => {
     if (s === 'ok') return t.statusOk;
     if (s === 'no_data') return t.statusNoData;
@@ -491,9 +510,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       edgeNo,
       bestEdge: Math.max(edgeYes, edgeNo),
       bestSide: 'YES' as const,
-      edge: out?.edge ?? 0
+      edge: out?.edge ?? 0,
+      engineConstrainedEdge: typeof out?.edge === 'number' ? out.edge : null
     };
   });
+  const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
   const centerTempRaw = decisionMeta.mostLikelyInteger ?? decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? null;
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw) ? Math.round(centerTempRaw) : null;
   const isTargetBin = (label: string) => {
@@ -506,8 +527,9 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   };
   const allBinsWithGlobalSide = allBins.map((b) => {
     const side = isTargetBin(b.label) ? 'YES' : 'NO';
-    const edge = side === 'YES' ? b.edgeYes : b.edgeNo;
-    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: edge, constrainedEv: edge };
+    const grossEdge = side === 'YES' ? b.edgeYes : b.edgeNo;
+    const constrainedNetEv = b.engineConstrainedEdge ?? (grossEdge - tradingCost);
+    return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv };
   });
   const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
   const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
@@ -527,16 +549,15 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   };
   const focusedBins = allBinsWithGlobalSide.filter((b) => isFocusedBin(b.label));
   const tailBins = allBinsWithGlobalSide.filter((b) => !isFocusedBin(b.label));
-  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.bestEdge - a.bestEdge)[0];
-  const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
+  const topProfit = [...allBinsWithGlobalSide].sort((a, b) => b.constrainedEv - a.constrainedEv)[0];
   const rankingBaseBins = focusedBins.length > 0 ? focusedBins : allBinsWithGlobalSide;
   const opportunityRows = [...rankingBaseBins]
     .map((b) => {
       const side = b.bestSide;
       const modelProb = side === 'YES' ? b.modelProbability : b.modelNoProbability;
       const marketPx = side === 'YES' ? b.marketPrice : b.noMarketPrice;
-      const grossEdge = b.bestEdge;
-      const netEdge = grossEdge - tradingCost;
+      const netEdge = b.constrainedEv;
+      const grossEdge = netEdge + tradingCost;
       return { label: b.label, side, modelProb, marketPx, grossEdge, netEdge };
     })
     .sort((a, b) => b.netEdge - a.netEdge)
@@ -783,11 +804,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             <div className="grid gap-2 md:grid-cols-3">
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.dayMaxForecast}</p>
-                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.fusedAnchor != null ? `${sourceDailyMax.fusedAnchor.toFixed(0)}°C` : '-'}</p>
+                <p className="text-lg font-semibold">{strictReady && panelForecastInteger != null ? `${panelForecastInteger.toFixed(0)}°C` : '-'}</p>
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.dayMaxContinuous}</p>
-                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.fusedContinuous != null ? `${sourceDailyMax.fusedContinuous.toFixed(1)}°C` : '-'}</p>
+                <p className="text-lg font-semibold">{strictReady && panelForecastContinuous != null ? `${panelForecastContinuous.toFixed(1)}°C` : '-'}</p>
               </div>
               <div className="rounded border border-border/60 bg-card/40 p-2">
                 <p className="text-[11px] text-muted-foreground">{t.todayObservedMax}</p>

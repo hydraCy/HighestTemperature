@@ -47,6 +47,16 @@ function shanghaiDateEquals(a: Date, b: Date) {
   return shanghaiDateKey(a) === shanghaiDateKey(b);
 }
 
+function shanghaiHourNow(date: Date) {
+  return Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      hour12: false,
+      hour: '2-digit'
+    }).format(date),
+  );
+}
+
 function shanghaiDayRangeUtc(dateKey: string) {
   return {
     start: new Date(`${dateKey}T00:00:00+08:00`),
@@ -540,6 +550,8 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
     observedMaxTemp: todayMaxTemp,
     forecastAnchorTemp: fusedAnchor,
     isTargetDateToday,
+    nowHourLocal: shanghaiHourNow(new Date()),
+    peakWindowStartHour: learnedPeakWindow?.startHour,
     futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
     futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
     futureTemp3h: nowcasting?.futureHours?.[2]?.temp,
