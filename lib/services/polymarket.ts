@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { fetchJsonWithCurlFallback } from '@/lib/utils/http-json';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
+import { targetDayEndSettlementAt } from '@/lib/utils/market-time';
 
 const marketSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
@@ -47,18 +48,22 @@ export type ShanghaiMarketPayload = {
   bins: { label: string; index: number; price: number; noPrice?: number; bestBid?: number; bestAsk?: number; spread?: number }[];
 };
 
-export async function fetchShanghaiMarket(): Promise<{ data: ShanghaiMarketPayload; source: 'api' }> {
+export async function fetchShanghaiMarket(
+  options?: { targetDateKey?: string | null }
+): Promise<{ data: ShanghaiMarketPayload; source: 'api' }> {
   const base = process.env.POLYMARKET_API_BASE ?? 'https://gamma-api.polymarket.com';
   const timeoutMs = Number(process.env.POLYMARKET_TIMEOUT_MS ?? '12000');
   const manualEventSlug = process.env.POLYMARKET_EVENT_SLUG?.trim() || null;
+  const requestedDate = parseShanghaiDateKey(options?.targetDateKey ?? null);
   const today = todayInShanghai();
-  const tomorrow = addDaysInShanghai(today, 1);
-  const todayKey = toDateKeyShanghai(today);
-  const tomorrowKey = toDateKeyShanghai(tomorrow);
+  const preferredDate = requestedDate ?? today;
+  const preferredNextDate = addDaysInShanghai(preferredDate, 1);
+  const todayKey = toDateKeyShanghai(preferredDate);
+  const tomorrowKey = toDateKeyShanghai(preferredNextDate);
   const rolloverWindowMinutes = Number(process.env.MARKET_ROLLOVER_WINDOW_MINUTES ?? '240');
   const now = new Date();
-  const autoTodaySlugs = buildAutoEventSlugs(today);
-  const autoTomorrowSlugs = buildAutoEventSlugs(tomorrow);
+  const autoTodaySlugs = buildAutoEventSlugs(preferredDate);
+  const autoTomorrowSlugs = buildAutoEventSlugs(preferredNextDate);
   const preferredSlugs = [...new Set([...(manualEventSlug ? [manualEventSlug] : []), ...autoTodaySlugs, ...autoTomorrowSlugs])];
   const urls = [
     ...preferredSlugs.map((slug) => `${base}/events/slug/${encodeURIComponent(slug)}`),
@@ -391,7 +396,8 @@ function pickByTradingDayPriority(
   const isTodayInSettlementWindow = (c: ShanghaiMarketPayload) => {
     const key = toDateKeyShanghai(c.targetDate);
     if (key !== opts.todayKey) return false;
-    const minutesToSettlement = Math.floor((c.targetDate.getTime() - opts.now.getTime()) / 60000);
+    const settlementAt = targetDayEndSettlementAt(c.targetDate);
+    const minutesToSettlement = Math.floor((settlementAt.getTime() - opts.now.getTime()) / 60000);
     return c.isClosed || !c.isActive || minutesToSettlement <= opts.rolloverWindowMinutes;
   };
   const hasTodayInSettlementWindow = candidates.some((c) => isTodayInSettlementWindow(c));
@@ -437,4 +443,11 @@ function buildAutoEventSlugs(date: Date) {
     `highest-temperature-in-shanghai-on-${monthLong}-${day}-${year}`,
     `highest-temperature-in-shanghai-on-${monthShort}-${day}-${year}`
   ];
+}
+
+function parseShanghaiDateKey(input: string | null) {
+  if (!input || !/^\d{4}-\d{2}-\d{2}$/.test(input)) return null;
+  const d = new Date(`${input}T12:00:00+08:00`);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d;
 }

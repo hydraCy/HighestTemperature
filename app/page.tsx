@@ -7,17 +7,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RefreshAllButton } from '@/components/market/refresh-all-button';
 import { LiveMarketPoller } from '@/components/market/live-market-poller';
-import { MvpLivePanels } from '@/components/market/mvp-live-panels';
+import { AutoRefreshTrigger } from '@/components/market/auto-refresh-trigger';
 import { fromJsonString } from '@/lib/utils/json';
+import { parseWeatherRaw } from '@/lib/utils/weather-raw';
 import { riskLabel } from '@/lib/i18n/risk-labels';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
+import { formatDateByMode, formatDateTimeByMode } from '@/lib/utils/time-display';
 import { calculatePositionSize } from '@/src/lib/trading-engine/positionSizer';
 import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
 
-type PageSearchParams = Promise<{ lang?: string | string[] }>;
+type PageSearchParams = Promise<{ lang?: string | string[]; d?: string | string[] }>;
 
 export default async function HomePage({ searchParams }: { searchParams: PageSearchParams }) {
-  const isCloudflareMvpMode = process.env.CF_MVP_MODE === 'true';
   const toShanghaiDateKey = (date: Date) => {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Shanghai',
@@ -32,12 +33,19 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   };
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
+  const selectedDate = Array.isArray(sp?.d) ? sp.d[0] : sp?.d;
+  const selectedDateKey = typeof selectedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
+    ? selectedDate
+    : toShanghaiDateKey(new Date());
   const t =
     lang === 'en'
       ? {
           mode: 'Research Mode',
           title: 'Decision / Position / Reason',
           dateTags: 'Date Tags',
+          dateMode: 'Target Date',
+          datePrev: 'Prev Day',
+          dateNext: 'Next Day',
           gatePanel: 'Strategy Gates',
           gateName: 'Gate',
           gateStatus: 'Status',
@@ -219,6 +227,9 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           mode: '研究模式',
           title: '决策 / 仓位 / 理由',
           dateTags: '日期标签',
+          dateMode: '目标日期',
+          datePrev: '前一天',
+          dateNext: '后一天',
           gatePanel: '策略门控状态',
           gateName: '门控项',
           gateStatus: '状态',
@@ -396,36 +407,12 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           apiLive: '实时API',
           unknown: '未知'
         };
-  if (isCloudflareMvpMode) {
-    return (
-      <SiteShell currentPath="/" lang={lang}>
-        <Card>
-          <CardHeader>
-            <CardTitle>{lang === 'en' ? 'Cloudflare MVP Mode' : 'Cloudflare MVP 模式'}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p>
-              {lang === 'en'
-                ? 'Site routing and static assets are online. Data pipeline APIs are temporarily disabled during migration.'
-                : '站点路由与静态资源已上线。迁移期间数据流水线接口暂时停用。'}
-            </p>
-            <p>
-              {lang === 'en'
-                ? 'Next step: migrate lightweight read-only APIs to Workers, then reconnect model outputs.'
-                : '下一步：先迁移轻量只读 API 到 Workers，再接回模型与决策输出。'}
-            </p>
-          </CardContent>
-        </Card>
-        <MvpLivePanels lang={lang} />
-      </SiteShell>
-    );
-  }
-
   const { getDashboardData } = await import('@/lib/services/query');
-  const data = await getDashboardData();
+  const data = await getDashboardData(selectedDateKey);
   if (!data) {
     return (
       <SiteShell currentPath="/" lang={lang}>
+        <AutoRefreshTrigger targetDateKey={selectedDateKey} />
         <Card>
           <CardHeader>
             <CardTitle>{lang === 'en' ? 'No Data Yet' : '暂无数据'}</CardTitle>
@@ -433,26 +420,25 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <CardContent className="space-y-2 text-sm">
             <p>
               {lang === 'en'
-                ? 'D1 is connected but has no market snapshots yet.'
-                : 'D1 已连接，但当前还没有市场快照数据。'}
+                ? 'No market snapshots are available yet.'
+                : '当前还没有市场快照数据。'}
             </p>
-            <MvpLivePanels lang={lang} />
           </CardContent>
         </Card>
       </SiteShell>
     );
   }
-  const sourceLabel = (s?: string) => (s === 'api' ? t.apiLive : t.unknown);
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
-  const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data?.latestWeather?.rawJson, {});
-  const weatherErrors = weatherRaw.raw?.errors ?? [];
-  const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
-  const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
-  const sourceDailyMax = (weatherRaw.raw as { sourceDailyMax?: { wundergroundDaily?: number | null; nwsHourly?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
-  const apiStatusMap = (weatherRaw.raw as {
+  const weatherParsed = parseWeatherRaw(data?.latestWeather?.rawJson);
+  const weatherRaw = weatherParsed.raw;
+  const weatherErrors = (weatherRaw.errors as string[] | undefined) ?? [];
+  const strictReadyRaw = (weatherRaw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
+  const missingSources = (weatherRaw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
+  const sourceDailyMax = (weatherRaw as { sourceDailyMax?: { wundergroundDaily?: number | null; nwsHourly?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
+  const apiStatusMap = (weatherRaw as {
     apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean }>;
   } | undefined)?.apiStatus ?? {};
-  const nowcasting = (weatherRaw.raw as {
+  const nowcasting = (weatherRaw as {
     nowcasting?: {
       currentTemp?: number;
       todayMaxTemp?: number;
@@ -475,7 +461,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       }>;
     };
   } | undefined)?.nowcasting;
-  const forecastExplain = (weatherRaw.raw as {
+  const forecastExplain = (weatherRaw as {
     forecastExplain?: {
       zh?: string;
       en?: string;
@@ -484,11 +470,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       weightBreakdown?: Array<{ source: string; raw: number; adjusted: number; weight: number }>;
     };
   } | undefined)?.forecastExplain;
-  const learnedPeakWindow = (weatherRaw.raw as { learnedPeakWindow?: { startHour?: number; endHour?: number; sampleDays?: number } } | undefined)?.learnedPeakWindow;
-  const resolutionSourceStatus = (weatherRaw.raw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
-  const weatherTargetDate = (weatherRaw.raw as { targetDate?: string } | undefined)?.targetDate;
-  const weatherObservedAt = (weatherRaw.raw as { nowcasting?: { observedAt?: string } } | undefined)?.nowcasting?.observedAt;
-  const weatherFetchedAt = (weatherRaw.raw as { fetchedAtIso?: string } | undefined)?.fetchedAtIso;
+  const learnedPeakWindow = (weatherRaw as { learnedPeakWindow?: { startHour?: number; endHour?: number; sampleDays?: number } } | undefined)?.learnedPeakWindow;
+  const resolutionSourceStatusRaw = (weatherRaw as { resolutionSourceStatus?: string } | undefined)?.resolutionSourceStatus;
+  const weatherTargetDate = (weatherRaw as { targetDate?: string } | undefined)?.targetDate;
+  const weatherObservedAt = weatherParsed.observedAt;
+  const weatherFetchedAt = weatherParsed.fetchedAtIso;
   const weatherFreshnessMinutes = (() => {
     const base = weatherFetchedAt ?? weatherObservedAt;
     if (!base) return null;
@@ -500,14 +486,29 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     ? toShanghaiDateKey(new Date(data.market.targetDate)) === toShanghaiDateKey(new Date())
     : false;
   const shanghaiTodayKey = toShanghaiDateKey(new Date());
+  const selectedDayDate = new Date(`${selectedDateKey}T00:00:00+08:00`);
+  const prevDay = new Date(selectedDayDate);
+  prevDay.setDate(prevDay.getDate() - 1);
+  const nextDay = new Date(selectedDayDate);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const prevDayKey = toShanghaiDateKey(prevDay);
+  const nextDayKey = toShanghaiDateKey(nextDay);
   const riskSet = new Set(data?.latestDecision?.riskFlags ?? []);
-  const marketTargetDateKey = data?.market?.targetDate ? format(data.market.targetDate, 'yyyy-MM-dd') : null;
+  const marketTargetDateKey = data?.market?.targetDate ? toShanghaiDateKey(new Date(data.market.targetDate)) : null;
   const isDateAligned = !marketTargetDateKey || !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
+  const selectedSettlementLabel = `${selectedDateKey} 24:00`;
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   const isWeatherStale = weatherFreshnessMinutes != null
     && Number.isFinite(weatherStaleThresholdMinutes)
     && weatherStaleThresholdMinutes > 0
     && weatherFreshnessMinutes > weatherStaleThresholdMinutes;
+  const strictReady = strictReadyRaw;
+  const resolutionSourceStatus = resolutionSourceStatusRaw;
+  const weatherErrorsEffective = weatherErrors;
+  const sourceLabel = (s?: string) => {
+    if (s === 'api') return t.apiLive;
+    return t.unknown;
+  };
   const decisionMeta = (data?.latestDecision?.reasonMeta ?? {}) as {
     calibratedFusedTemp?: number;
     mostLikelyInteger?: number;
@@ -522,16 +523,19 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     typeof decisionMeta.settlementMean === 'number' && Number.isFinite(decisionMeta.settlementMean)
       ? decisionMeta.settlementMean
       : null;
+  const hasLatestDecision = Boolean(data?.latestDecision);
   const panelForecastInteger =
-    decisionForecastInteger ??
-    (typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
-      ? Math.round(sourceDailyMax.fusedAnchor)
-      : null);
+    hasLatestDecision
+      ? decisionForecastInteger
+      : (typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
+          ? Math.round(sourceDailyMax.fusedAnchor)
+          : null);
   const panelForecastContinuous =
-    decisionForecastContinuous ??
-    (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
-      ? sourceDailyMax.fusedContinuous
-      : null);
+    hasLatestDecision
+      ? decisionForecastContinuous
+      : (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
+          ? sourceDailyMax.fusedContinuous
+          : null);
   const statusLabel = (s?: string) => {
     if (s === 'ok') return t.statusOk;
     if (s === 'no_data') return t.statusNoData;
@@ -735,6 +739,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
 
   return (
     <SiteShell currentPath="/" lang={lang}>
+      <AutoRefreshTrigger targetDateKey={selectedDateKey} />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-muted-foreground">{t.mode}</p>
@@ -744,7 +749,23 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <select className="h-9 rounded border bg-background px-3 text-sm" defaultValue="Shanghai">
             <option value="Shanghai">{t.city}</option>
           </select>
-          <RefreshAllButton lang={lang} />
+          <div className="inline-flex items-center overflow-hidden rounded border border-border text-xs">
+            <span className="px-2 py-1 text-muted-foreground">{t.dateMode}</span>
+            <Link
+              href={`/?lang=${lang}&d=${prevDayKey}`}
+              className="border-l border-border px-2 py-1 text-muted-foreground"
+            >
+              {t.datePrev}
+            </Link>
+            <span className="border-l border-border px-2 py-1">{selectedDateKey}</span>
+            <Link
+              href={`/?lang=${lang}&d=${nextDayKey}`}
+              className="border-l border-border px-2 py-1 text-muted-foreground"
+            >
+              {t.dateNext}
+            </Link>
+          </div>
+          <RefreshAllButton lang={lang} targetDateKey={selectedDateKey} />
         </div>
       </div>
       <LiveMarketPoller
@@ -755,10 +776,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       <Card>
         <CardHeader><CardTitle>{t.dateTags}</CardTitle></CardHeader>
         <CardContent className="grid gap-2 text-sm md:grid-cols-4">
-          <p>{t.targetDate}: {data?.market?.targetDate ? format(data.market.targetDate, 'yyyy-MM-dd') : '-'}</p>
+          <p>{t.targetDate}: {formatDateByMode(data?.market?.targetDate ?? null, 'shanghai')}</p>
           <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
           <p>{t.shanghaiToday}: {shanghaiTodayKey}</p>
-          <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
+          <p>{t.settlementTime}: {selectedSettlementLabel}</p>
         </CardContent>
       </Card>
       <Card>
@@ -772,15 +793,15 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         </CardContent>
       </Card>
 
-      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrors.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale) && (
+      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrorsEffective.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale) && (
         <Card className="border-amber-500/30">
           <CardContent className="p-4 text-sm text-amber-300">
             {t.warningPrefix}（{t.warningMarket}：{sourceLabel(data?.marketSource)}，{t.warningWeather}：{sourceLabel(data?.weatherSource)}）。
-            {weatherErrors.length > 0 ? `${t.weatherErrors}：${weatherErrors.join('；')}` : ''}
+            {weatherErrorsEffective.length > 0 ? `${t.weatherErrors}：${weatherErrorsEffective.join('；')}` : ''}
             {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
             {isWeatherStale ? ` ${t.weatherStaleWarn}（${weatherFreshnessMinutes} ${t.mins}，${t.staleThreshold} ${weatherStaleThresholdMinutes} ${t.mins}）` : ''}
             {resolutionSourceStatus !== 'direct' ? ` ${t.nonDirectResolution}` : ''}
-            {weatherTargetDate && data?.market?.targetDate && weatherTargetDate !== format(data.market.targetDate, 'yyyy-MM-dd') ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${format(data.market.targetDate, 'yyyy-MM-dd')}` : ''}
+            {weatherTargetDate && marketTargetDateKey && weatherTargetDate !== marketTargetDateKey ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${marketTargetDateKey}` : ''}
           </CardContent>
         </Card>
       )}
@@ -788,7 +809,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       {data?.marketStatus?.isSettled && (
         <Card className="border-rose-500/40">
           <CardContent className="p-4 text-sm text-rose-300">
-            {t.settledTitle}（{t.settlementTime}：{data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}）。
+            {t.settledTitle}（{t.settlementTime}：{selectedSettlementLabel}）。
             {t.settledForcePass}
           </CardContent>
         </Card>
@@ -810,11 +831,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <p>{t.finalizeRule}: {data?.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
           <p>{t.marketSource}: <span className={data?.marketSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.marketSource)}</span></p>
           <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Wunderground + AviationWeather + wttr.in + met.no）</span></p>
-          <p>{t.settlementTime}: {data?.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
+          <p>{t.settlementTime}: {selectedSettlementLabel}</p>
           <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
           <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
-          <p>{t.weatherObservedAt}: {weatherObservedAt ? format(new Date(weatherObservedAt), 'yyyy-MM-dd HH:mm') : '-'}</p>
-          <p>{t.weatherFetchedAt}: {weatherFetchedAt ? format(new Date(weatherFetchedAt), 'yyyy-MM-dd HH:mm:ss') : '-'}</p>
+          <p>{t.weatherObservedAt}: {weatherObservedAt ? formatDateTimeByMode(new Date(weatherObservedAt), 'shanghai') : '-'}</p>
+          <p>{t.weatherFetchedAt}: {weatherFetchedAt ? formatDateTimeByMode(new Date(weatherFetchedAt), 'shanghai') : '-'}</p>
           <p>{t.weatherFreshness}: {weatherFreshnessMinutes != null ? `${weatherFreshnessMinutes} ${t.mins}` : '-'}</p>
           <p className="md:col-span-2">{t.assistNote}</p>
         </CardContent>
@@ -879,7 +900,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <CardContent className="grid gap-2 text-sm md:grid-cols-2">
             <p>{t.finalTemp}: {data.market.settledResult.finalValue.toFixed(0)}°C</p>
             <p>{t.winningBin}: {data.market.settledResult.finalOutcomeLabel}</p>
-            <p>{t.settledAt}: {format(data.market.settledResult.settledAt, 'yyyy-MM-dd HH:mm')}</p>
+            <p>{t.settledAt}: {formatDateTimeByMode(data.market.settledResult.settledAt, 'shanghai')}</p>
             <p>
               {t.settledSource}:{' '}
               <a className="text-primary underline" href={data.market.settledResult.sourceUrl} target="_blank" rel="noreferrer">
@@ -896,7 +917,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           <CardContent className="space-y-2 text-sm">
             <p>{t.marketSlug}: {data?.market.marketSlug ?? '-'}</p>
             <p>{t.marketTitle}: {data?.market.marketTitle ?? '-'}</p>
-            <p>{t.targetDate}: {data?.market.targetDate ? format(data.market.targetDate, 'yyyy-MM-dd') : '-'}</p>
+            <p>{t.targetDate}: {formatDateByMode(data?.market.targetDate ?? null, 'shanghai')}</p>
             <p>{t.volume}: {data?.market.volume?.toFixed(0) ?? '-'}</p>
             {data?.market?.marketSlug && (
               <p>

@@ -3,11 +3,13 @@ export const dynamic = 'force-dynamic';
 import { notFound, redirect } from 'next/navigation';
 import { format } from 'date-fns';
 import { SiteShell } from '@/components/layout/site-shell';
+import { AutoRefreshTrigger } from '@/components/market/auto-refresh-trigger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { NoteInput } from '@/components/market/note-input';
 import { fromJsonString } from '@/lib/utils/json';
+import { parseWeatherRaw } from '@/lib/utils/weather-raw';
 import { TempTrendChart, BinEdgeChart } from '@/components/charts/market-charts';
 import { riskLabel } from '@/lib/i18n/risk-labels';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
@@ -21,7 +23,6 @@ export default async function MarketDetailPage({
   params: Promise<{ slug: string }>;
   searchParams: DetailSearchParams;
 }) {
-  const isCloudflareMvpMode = process.env.CF_MVP_MODE === 'true';
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
   const t =
@@ -188,30 +189,6 @@ export default async function MarketDetailPage({
         };
 
   const { slug } = await params;
-  if (isCloudflareMvpMode) {
-    return (
-      <SiteShell currentPath={`/market/${slug}`} lang={lang}>
-        <Card>
-          <CardHeader>
-            <CardTitle>{lang === 'en' ? 'Market Detail (MVP)' : '市场详情（MVP）'}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p>
-              {lang === 'en'
-                ? `Route is available: /market/${slug}`
-                : `路由可访问：/market/${slug}`}
-            </p>
-            <p>
-              {lang === 'en'
-                ? 'Database-backed detail, notes, and model snapshots are temporarily disabled during Cloudflare MVP rollout.'
-                : '基于数据库的详情、笔记和模型快照在 Cloudflare MVP 阶段暂时停用。'}
-            </p>
-          </CardContent>
-        </Card>
-      </SiteShell>
-    );
-  }
-
   const { getMarketDetail } = await import('@/lib/services/query');
   const data = await getMarketDetail(slug);
   if (!data) return notFound();
@@ -300,11 +277,12 @@ export default async function MarketDetailPage({
   };
   const focusedBins = allBinsWithGlobalSide.filter((b) => isFocusedBin(b.label));
   const tailBins = allBinsWithGlobalSide.filter((b) => !isFocusedBin(b.label));
-  const weatherRaw = fromJsonString<{ raw?: { errors?: string[] } }>(data.latestWeather?.rawJson, {});
-  const weatherErrors = weatherRaw.raw?.errors ?? [];
-  const weatherTargetDate = (weatherRaw.raw as { targetDate?: string } | undefined)?.targetDate;
-  const weatherObservedAt = (weatherRaw.raw as { nowcasting?: { observedAt?: string } } | undefined)?.nowcasting?.observedAt;
-  const weatherFetchedAt = (weatherRaw.raw as { fetchedAtIso?: string } | undefined)?.fetchedAtIso;
+  const weatherParsed = parseWeatherRaw(data.latestWeather?.rawJson);
+  const weatherRaw = weatherParsed.raw;
+  const weatherErrors = (weatherRaw.errors as string[] | undefined) ?? [];
+  const weatherTargetDate = (weatherRaw as { targetDate?: string } | undefined)?.targetDate;
+  const weatherObservedAt = weatherParsed.observedAt;
+  const weatherFetchedAt = weatherParsed.fetchedAtIso;
   const weatherFreshnessMinutes = (() => {
     const base = weatherFetchedAt ?? weatherObservedAt;
     if (!base) return null;
@@ -328,13 +306,17 @@ export default async function MarketDetailPage({
   const riskSet = new Set(fromJsonString<string[]>(latestRun?.riskFlagsJson, []));
   const marketTargetDateKey = format(data.market.targetDate, 'yyyy-MM-dd');
   const isDateAligned = !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
+  const timeTagText =
+    lang === 'en'
+      ? 'Timezone: Asia/Shanghai | Settlement rule: target-day end (24:00)'
+      : '时间标签：Asia/Shanghai | 结算口径：目标日结束（24:00）';
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   const isWeatherStale = weatherFreshnessMinutes != null
     && Number.isFinite(weatherStaleThresholdMinutes)
     && weatherStaleThresholdMinutes > 0
     && weatherFreshnessMinutes > weatherStaleThresholdMinutes;
-  const strictReady = (weatherRaw.raw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
-  const missingSources = (weatherRaw.raw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
+  const strictReady = (weatherRaw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
+  const missingSources = (weatherRaw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
 
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
   const reasonLocalized =
@@ -344,6 +326,7 @@ export default async function MarketDetailPage({
 
   return (
     <SiteShell currentPath={`/market/${slug}`} lang={lang}>
+      <AutoRefreshTrigger targetDateKey={format(data.market.targetDate, 'yyyy-MM-dd')} />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-muted-foreground">{t.pageTag}</p>
@@ -357,6 +340,7 @@ export default async function MarketDetailPage({
           <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
           <p>{t.shanghaiToday}: {shanghaiTodayKey}</p>
           <p>{t.settlementTime}: {data.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
+          <p className="md:col-span-4 text-xs text-muted-foreground">{timeTagText}</p>
         </CardContent>
       </Card>
       <Card>

@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/db';
 import type { SourceHealthStatus } from '@/src/lib/fusion-engine/sourcePolicy';
 import { fromJsonString } from '@/lib/utils/json';
 
@@ -30,12 +29,47 @@ function normalizeApiOkStatus(status?: string | null) {
   return status === 'ok';
 }
 
+async function getPrismaOptional() {
+  try {
+    const { prisma } = await import('@/lib/db');
+    return prisma;
+  } catch {
+    return null;
+  }
+}
+
 export async function computeSourceHealth(
   marketId: string,
   sourceCode: WeatherSourceCode | string,
   currentApiStatus?: string | null,
   forecastAgeHours?: number | null
 ): Promise<SourceHealth> {
+  const prisma = await getPrismaOptional();
+  if (!prisma) {
+    if (currentApiStatus && !normalizeApiOkStatus(currentApiStatus)) {
+      return {
+        sourceCode,
+        status: 'down',
+        healthScore: scoreOf('down'),
+        reason: '运行环境未启用数据库健康追踪，且当前源状态非 ok'
+      };
+    }
+    if (forecastAgeHours != null && Number.isFinite(forecastAgeHours) && forecastAgeHours > 18) {
+      return {
+        sourceCode,
+        status: 'stale',
+        healthScore: scoreOf('stale'),
+        reason: `数据发布时间超过 18 小时（${forecastAgeHours.toFixed(1)}h）`
+      };
+    }
+    return {
+      sourceCode,
+      status: 'healthy',
+      healthScore: scoreOf('healthy'),
+      reason: '数据库健康追踪在当前环境降级'
+    };
+  }
+
   const [recentSnaps, degradedWindow] = await Promise.all([
     prisma.weatherAssistSnapshot.findMany({
       where: { marketId },
@@ -118,4 +152,3 @@ export async function computeSourceHealth(
     reason: '-'
   };
 }
-

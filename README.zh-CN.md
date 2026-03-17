@@ -8,6 +8,10 @@
 - 不接入钱包与私钥
 - 核心输出：`Decision` / `Position` / `Reason`
 
+核心文档：
+- 产品规范：[`docs/PRODUCT_SPEC.zh-CN.md`](/Users/caiyu/Desktop/未命名文件夹/shanghai/docs/PRODUCT_SPEC.zh-CN.md)
+- 变更流程：[`docs/CHANGE_WORKFLOW.zh-CN.md`](/Users/caiyu/Desktop/未命名文件夹/shanghai/docs/CHANGE_WORKFLOW.zh-CN.md)
+
 ---
 
 ## 1）平台定位
@@ -163,7 +167,17 @@ npm run compare:openmeteo-wu
 
 ---
 
-## 10）环境变量
+## 10）仅本地运行模式
+
+当前仓库已收敛为 **本地优先**：
+
+- 不再维护 Cloudflare 部署链路
+- 不再维护 Node 分离部署链路
+- 统一使用本地 `Next.js + Prisma + SQLite` 主链路
+
+---
+
+## 11）环境变量
 
 复制 `.env.example` 后按需配置。
 
@@ -183,7 +197,7 @@ npm run compare:openmeteo-wu
 
 ---
 
-## 11）端口说明
+## 12）端口说明
 
 - 默认：`3000`
 - 若被占用：自动切到 `3001`
@@ -191,7 +205,7 @@ npm run compare:openmeteo-wu
 
 ---
 
-## 12）调度
+## 13）调度
 
 `npm run jobs`（node-cron）：
 - 市场：每 5 分钟
@@ -205,7 +219,7 @@ npm run compare:openmeteo-wu
 
 ---
 
-## 13）最终输出
+## 14）最终输出
 
 - `Decision`：`BUY / WATCH / PASS`
 - `Position`：建议仓位
@@ -213,6 +227,6 @@ npm run compare:openmeteo-wu
 
 ---
 
-## 14）免责声明
+## 15）免责声明
 
 本项目仅用于研究与决策辅助，不构成投资建议。

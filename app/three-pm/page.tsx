@@ -1,34 +1,30 @@
 export const dynamic = 'force-dynamic';
 
+import Link from 'next/link';
 import { format } from 'date-fns';
 import { SiteShell } from '@/components/layout/site-shell';
+import { AutoRefreshTrigger } from '@/components/market/auto-refresh-trigger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { fromJsonString } from '@/lib/utils/json';
+import { parseWeatherRaw } from '@/lib/utils/weather-raw';
+import { dateKeyByMode, formatDateByMode } from '@/lib/utils/time-display';
 
-type PageSearchParams = Promise<{ lang?: string | string[] }>;
+type PageSearchParams = Promise<{ lang?: string | string[]; d?: string | string[] }>;
 type GateLevel = 'pass' | 'warn' | 'block';
 
-function toShanghaiDateKey(date: Date) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(date);
-  const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
-  const m = parts.find((p) => p.type === 'month')?.value ?? '00';
-  const d = parts.find((p) => p.type === 'day')?.value ?? '00';
-  return `${y}-${m}-${d}`;
-}
-
 export default async function ThreePmPage({ searchParams }: { searchParams: PageSearchParams }) {
-  const isCloudflareMvpMode = process.env.CF_MVP_MODE === 'true';
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
+  const selectedDate = Array.isArray(sp?.d) ? sp.d[0] : sp?.d;
+  const selectedDateKey = typeof selectedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
+    ? selectedDate
+    : dateKeyByMode(new Date(), 'shanghai');
   const t = lang === 'en'
     ? {
         title: '3PM Scan',
+        dateMode: 'Target Date',
+        datePrev: 'Prev Day',
+        dateNext: 'Next Day',
         dateTags: 'Date Tags',
         gates: 'Strategy Gates',
         gate: 'Gate',
@@ -54,6 +50,9 @@ export default async function ThreePmPage({ searchParams }: { searchParams: Page
       }
     : {
         title: '3PM 扫盘页',
+        dateMode: '目标日期',
+        datePrev: '前一天',
+        dateNext: '后一天',
         dateTags: '日期标签',
         gates: '策略门控状态',
         gate: '门控项',
@@ -78,41 +77,26 @@ export default async function ThreePmPage({ searchParams }: { searchParams: Page
         noData: '暂无市场数据。'
     };
 
-  if (isCloudflareMvpMode) {
-    return (
-      <SiteShell currentPath="/three-pm" lang={lang}>
-        <Card>
-          <CardHeader>
-            <CardTitle>{lang === 'en' ? '3PM Scan (MVP)' : '3PM 扫盘（MVP）'}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm">
-            {lang === 'en'
-              ? 'This page is online on Cloudflare Workers, but real-time market/weather/model data is temporarily disabled in MVP mode.'
-              : '该页面已在 Cloudflare Workers 上线，但 MVP 阶段暂时禁用了实时市场/天气/模型数据。'}
-          </CardContent>
-        </Card>
-      </SiteShell>
-    );
-  }
-
   const { getDashboardData } = await import('@/lib/services/query');
-  const data = await getDashboardData();
+  const data = await getDashboardData(selectedDateKey);
   if (!data) {
     return (
       <SiteShell currentPath="/three-pm" lang={lang}>
+        <AutoRefreshTrigger targetDateKey={selectedDateKey} />
         <Card><CardContent className="p-4 text-sm">{t.noData}</CardContent></Card>
       </SiteShell>
     );
   }
 
-  const weatherRaw = fromJsonString<{ raw?: { targetDate?: string; fetchedAtIso?: string; nowcasting?: { observedAt?: string }; strictReady?: boolean } }>(
-    data.latestWeather?.rawJson,
-    {}
-  );
-  const weatherTargetDate = weatherRaw.raw?.targetDate ?? null;
-  const weatherFetchedAt = weatherRaw.raw?.fetchedAtIso ?? null;
-  const weatherObservedAt = weatherRaw.raw?.nowcasting?.observedAt ?? null;
-  const strictReady = weatherRaw.raw?.strictReady ?? false;
+  const weatherParsed = parseWeatherRaw(data.latestWeather?.rawJson);
+  const weatherRaw = weatherParsed.raw as {
+    targetDate?: string;
+    strictReady?: boolean;
+  };
+  const weatherTargetDate = weatherRaw.targetDate ?? null;
+  const weatherFetchedAt = weatherParsed.fetchedAtIso;
+  const weatherObservedAt = weatherParsed.observedAt;
+  const strictReady = weatherRaw.strictReady ?? false;
   const weatherFreshnessMinutes = (() => {
     const base = weatherFetchedAt ?? weatherObservedAt;
     if (!base) return null;
@@ -122,9 +106,18 @@ export default async function ThreePmPage({ searchParams }: { searchParams: Page
   })();
   const staleLimit = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   const isWeatherStale = weatherFreshnessMinutes != null && weatherFreshnessMinutes > staleLimit;
-  const marketTargetDate = format(data.market.targetDate, 'yyyy-MM-dd');
-  const isDateAligned = !weatherTargetDate || weatherTargetDate === marketTargetDate;
+  const marketTargetDate = formatDateByMode(data.market.targetDate, 'shanghai');
+  const marketTargetDateShanghai = format(data.market.targetDate, 'yyyy-MM-dd');
+  const isDateAligned = !weatherTargetDate || weatherTargetDate === marketTargetDateShanghai;
+  const selectedSettlementLabel = `${selectedDateKey} 24:00`;
   const riskSet = new Set(data.latestDecision?.riskFlags ?? []);
+  const selectedDayDate = new Date(`${selectedDateKey}T00:00:00+08:00`);
+  const prevDay = new Date(selectedDayDate);
+  prevDay.setDate(prevDay.getDate() - 1);
+  const nextDay = new Date(selectedDayDate);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const prevDayKey = dateKeyByMode(prevDay, 'shanghai');
+  const nextDayKey = dateKeyByMode(nextDay, 'shanghai');
 
   const gateRank: Record<GateLevel, number> = { pass: 0, warn: 1, block: 2 };
   const gate = (name: string, level: GateLevel) => ({ name, level });
@@ -142,15 +135,34 @@ export default async function ThreePmPage({ searchParams }: { searchParams: Page
 
   return (
     <SiteShell currentPath="/three-pm" lang={lang}>
-      <h1 className="text-xl font-semibold">{t.title}</h1>
+      <AutoRefreshTrigger targetDateKey={selectedDateKey} />
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold">{t.title}</h1>
+        <div className="inline-flex items-center overflow-hidden rounded border border-border text-xs">
+          <span className="px-2 py-1 text-muted-foreground">{t.dateMode}</span>
+          <Link
+            href={`/three-pm?lang=${lang}&d=${prevDayKey}`}
+            className="border-l border-border px-2 py-1 text-muted-foreground"
+          >
+            {t.datePrev}
+          </Link>
+          <span className="border-l border-border px-2 py-1">{selectedDateKey}</span>
+          <Link
+            href={`/three-pm?lang=${lang}&d=${nextDayKey}`}
+            className="border-l border-border px-2 py-1 text-muted-foreground"
+          >
+            {t.dateNext}
+          </Link>
+        </div>
+      </div>
 
       <Card>
         <CardHeader><CardTitle>{t.dateTags}</CardTitle></CardHeader>
         <CardContent className="grid gap-2 text-sm md:grid-cols-4">
           <p>{t.marketTarget}: {marketTargetDate}</p>
           <p>{t.weatherTarget}: {weatherTargetDate ?? '-'}</p>
-          <p>{t.shanghaiToday}: {toShanghaiDateKey(new Date())}</p>
-          <p>{t.settlement}: {data.marketStatus?.settlementAt ? format(data.marketStatus.settlementAt, 'yyyy-MM-dd HH:mm') : '-'}</p>
+          <p>{t.shanghaiToday}: {dateKeyByMode(new Date(), 'shanghai')}</p>
+          <p>{t.settlement}: {selectedSettlementLabel}</p>
         </CardContent>
       </Card>
 

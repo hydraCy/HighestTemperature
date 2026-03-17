@@ -54,9 +54,9 @@ export function computeConstraintBounds(input: ConstraintInput): ConstraintOutpu
     ? Math.floor(Math.max(input.currentTemp, maxFutureTemp, (input.observedMaxTemp ?? input.currentTemp)) + Math.min(0.5, maxPotentialRise * 0.4))
     : undefined;
 
-  const minAllowedInteger = [observedFloorInteger, reachabilityFloorInteger]
-    .filter((x): x is number => typeof x === 'number' && Number.isFinite(x))
-    .reduce((a, b) => Math.max(a, b), Number.NEGATIVE_INFINITY);
+  // Hard floor should come from observed max only.
+  // Reachability from short-term forecast is noisy and should not hard-zero bins.
+  const minAllowedInteger = observedFloorInteger;
 
   return {
     observedFloorInteger,
@@ -67,4 +67,3 @@ export function computeConstraintBounds(input: ConstraintInput): ConstraintOutpu
     maxPotentialRise
   };
 }
-

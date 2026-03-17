@@ -3,7 +3,13 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
-export function RefreshAllButton({ lang = 'zh' }: { lang?: 'zh' | 'en' }) {
+export function RefreshAllButton({
+  lang = 'zh',
+  targetDateKey
+}: {
+  lang?: 'zh' | 'en';
+  targetDateKey?: string;
+}) {
   const [loading, setLoading] = useState(false);
   const text = lang === 'en' ? { loading: 'Refreshing...', idle: 'Refresh Now' } : { loading: '刷新中...', idle: '立即刷新' };
 
@@ -15,7 +21,8 @@ export function RefreshAllButton({ lang = 'zh' }: { lang?: 'zh' | 'en' }) {
       onClick={async () => {
         setLoading(true);
         try {
-          await fetch('/api/refresh', { method: 'POST' });
+          const query = targetDateKey ? `?d=${encodeURIComponent(targetDateKey)}` : '';
+          await fetch(`/api/refresh${query}`, { method: 'POST' });
           window.location.reload();
         } finally {
           setLoading(false);

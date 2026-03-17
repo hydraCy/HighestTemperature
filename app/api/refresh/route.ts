@@ -1,15 +1,15 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST() {
-  if (process.env.CF_MVP_MODE === 'true' || process.env.CF_USE_D1 === 'true') {
-    return NextResponse.json(
-      { ok: false, message: 'Cloudflare MVP 模式下该接口暂不可用' },
-      { status: 501 }
-    );
-  }
+function normalizeDateKey(input: string | null | undefined) {
+  if (!input) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(input) ? input : null;
+}
+
+export async function POST(req: NextRequest) {
   try {
+    const targetDateKey = normalizeDateKey(req.nextUrl.searchParams.get('d'));
     const { syncAllNow } = await import('@/lib/services/refresh-service');
-    const result = await syncAllNow();
+    const result = await syncAllNow(targetDateKey);
     return NextResponse.json({ ok: true, decision: result?.decision?.decision ?? null });
   } catch (error) {
     return NextResponse.json(

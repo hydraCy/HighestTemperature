@@ -7,12 +7,6 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  if (process.env.CF_MVP_MODE === 'true') {
-    return NextResponse.json(
-      { ok: false, message: 'Cloudflare MVP 模式下该接口暂不可用' },
-      { status: 501 }
-    );
-  }
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: parsed.error.flatten() }, { status: 400 });

@@ -8,8 +8,7 @@ import {
 } from '@/lib/services/wunderground-nowcasting';
 import { runFusionEngine } from '@/src/lib/fusion-engine/fuse';
 import type { HistoricalCalibration, WeatherSourceInput } from '@/src/lib/fusion-engine/types';
-import { classifySourceKind } from '@/src/lib/fusion-engine/sourcePolicy';
-import { prisma } from '@/lib/db';
+import { classifySourceKind, type SourceKind } from '@/src/lib/fusion-engine/sourcePolicy';
 import { computeSourceHealth } from '@/lib/services/source-health';
 import { classifyWeatherRegime } from '@/src/lib/trading-engine/regimeClassifier';
 
@@ -23,6 +22,7 @@ const RESOLUTION_STATION = {
 
 const nwsHourlySchema = z.object({
   properties: z.object({
+    updated: z.string().optional(),
     periods: z.array(
       z.object({
         startTime: z.string(),
@@ -77,6 +77,9 @@ const wttrSchema = z.object({
 
 const metNoSchema = z.object({
   properties: z.object({
+    meta: z.object({
+      updated_at: z.string().optional()
+    }).optional(),
     timeseries: z.array(
       z.object({
         time: z.string(),
@@ -121,6 +124,10 @@ const openMeteoSchema = z.object({
 });
 
 const weatherApiSchema = z.object({
+  current: z.object({
+    last_updated_epoch: z.number().optional(),
+    last_updated: z.string().optional()
+  }).optional(),
   forecast: z
     .object({
       forecastday: z
@@ -138,6 +145,7 @@ const weatherApiSchema = z.object({
 });
 
 const qWeatherSchema = z.object({
+  updateTime: z.string().optional(),
   daily: z
     .array(
       z.object({
@@ -235,13 +243,24 @@ type ApiHealth = {
 
 function strictSourceListFromEnv(): WeatherSourceCode[] {
   const raw = process.env.WEATHER_STRICT_SOURCES?.trim();
-  if (!raw) return ['wttr', 'met_no'];
+  if (!raw) return [];
   const allowed: WeatherSourceCode[] = ['wunderground', 'wunderground_daily', 'weather_com', 'wunderground_history', 'nws_hourly', 'open_meteo', 'aviationweather', 'wttr', 'met_no', 'weatherapi', 'qweather'];
   const list = raw
     .split(',')
     .map((x) => x.trim().toLowerCase())
     .filter((x): x is WeatherSourceCode => allowed.includes(x as WeatherSourceCode));
-  return list.length ? Array.from(new Set(list)) : ['wttr', 'met_no'];
+  return list.length ? Array.from(new Set(list)) : [];
+}
+
+function strictKindListFromEnv(): SourceKind[] {
+  const raw = process.env.WEATHER_STRICT_REQUIRED_KINDS?.trim();
+  const allowed: SourceKind[] = ['settlement', 'observation', 'forecast', 'guidance'];
+  if (!raw) return ['settlement', 'forecast', 'guidance'];
+  const kinds = raw
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter((x): x is SourceKind => allowed.includes(x as SourceKind));
+  return kinds.length ? Array.from(new Set(kinds)) : ['settlement', 'forecast', 'guidance'];
 }
 
 function fusionExcludedSourcesFromEnv() {
@@ -317,17 +336,22 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
   let aviationMetar: AviationMetarPoint | null = null;
   let aviationTaf: AviationTafPoint | null = null;
   let weatherApiDailyMax: number | null = null;
+  let weatherApiUpdatedAt: string | null = null;
   let weatherApiMeta: { matchedDate: string | null; availableDates: string[]; field: 'maxtemp_c' } = {
     matchedDate: null,
     availableDates: [],
     field: 'maxtemp_c'
   };
   let qWeatherDailyMax: number | null = null;
+  let qWeatherUpdatedAt: string | null = null;
+  let nwsUpdatedAt: string | null = null;
+  let metNoUpdatedAt: string | null = null;
   let wuDailyMax: number | null = null;
   let wuNowcasting: WundergroundNowcasting | null = null;
   let wuPeakWindow: { startHour: number; endHour: number; medianHour: number; sampleDays: number; method: string } | null = null;
   const errors: string[] = [];
   const strictRequiredSources = strictSourceListFromEnv();
+  const strictRequiredKinds = strictKindListFromEnv();
   const targetKey = toDateKey(targetDateResolved);
   const apiStatus: Record<WeatherSourceCode, ApiHealth> = {
     wunderground: { status: 'skipped', hasData: false },
@@ -396,7 +420,9 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
     apiStatus.nws_hourly = { status: 'skipped', hasData: false, reason: '未启用 ENABLE_NWS_HOURLY（默认关闭）' };
   } else if (nwsHourlyRes.status === 'fulfilled' && nwsHourlyRes.value) {
     try {
-      nwsRows = toNwsRows(nwsHourlySchema.parse(nwsHourlyRes.value));
+      const parsedNws = nwsHourlySchema.parse(nwsHourlyRes.value);
+      nwsUpdatedAt = parsedNws.properties.updated ?? null;
+      nwsRows = toNwsRows(parsedNws);
       apiStatus.nws_hourly = { status: nwsRows.length ? 'ok' : 'no_data', hasData: nwsRows.length > 0, reason: nwsRows.length ? undefined : '无逐小时数据' };
     } catch (error) {
       const reason = `NWS 小时预报数据结构异常：${error instanceof Error ? error.message : String(error)}`;
@@ -422,7 +448,7 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
         hasData,
         reason: hasData ? undefined : 'Open-Meteo(ECMWF IFS) 在目标日返回全 null'
       };
-    } catch (error) {
+    } catch {
       const reason = 'Open-Meteo 数据结构异常（字段解析失败）';
       errors.push(reason);
       apiStatus.open_meteo = { status: 'parse_error', hasData: false, reason };
@@ -464,7 +490,9 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
 
   if (metNoRes.status === 'fulfilled') {
     try {
-      metNoRows = toMetNoRows(metNoSchema.parse(metNoRes.value));
+      const parsedMetNo = metNoSchema.parse(metNoRes.value);
+      metNoUpdatedAt = parsedMetNo.properties.meta?.updated_at ?? null;
+      metNoRows = toMetNoRows(parsedMetNo);
       apiStatus.met_no = { status: metNoRows.length ? 'ok' : 'no_data', hasData: metNoRows.length > 0, reason: metNoRows.length ? undefined : '无逐小时数据' };
     } catch (error) {
       const reason = `met.no 数据结构异常：${error instanceof Error ? error.message : String(error)}`;
@@ -485,7 +513,12 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
       }
     } else {
       try {
-        const parsedWeatherApi = parseWeatherApiDailyMax(weatherApiSchema.parse(weatherApiRes.value), targetKey);
+        const weatherApiParsedPayload = weatherApiSchema.parse(weatherApiRes.value);
+        weatherApiUpdatedAt =
+          typeof weatherApiParsedPayload.current?.last_updated_epoch === 'number'
+            ? new Date(weatherApiParsedPayload.current.last_updated_epoch * 1000).toISOString()
+            : (weatherApiParsedPayload.current?.last_updated ?? null);
+        const parsedWeatherApi = parseWeatherApiDailyMax(weatherApiParsedPayload, targetKey);
         weatherApiDailyMax = parsedWeatherApi.value;
         weatherApiMeta = {
           matchedDate: parsedWeatherApi.matchedDate,
@@ -528,7 +561,9 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
       }
     } else {
       try {
-        qWeatherDailyMax = parseQWeatherDailyMax(qWeatherSchema.parse(qWeatherRes.value), targetKey);
+        const qWeatherParsedPayload = qWeatherSchema.parse(qWeatherRes.value);
+        qWeatherUpdatedAt = qWeatherParsedPayload.updateTime ?? null;
+        qWeatherDailyMax = parseQWeatherDailyMax(qWeatherParsedPayload, targetKey);
         apiStatus.qweather = {
           status: qWeatherDailyMax == null ? 'no_data' : 'ok',
           hasData: qWeatherDailyMax != null,
@@ -588,7 +623,30 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
     weatherapi: weatherApiDailyMax != null,
     qweather: qWeatherDailyMax != null
   };
-  const missingSources: WeatherSourceCode[] = strictRequiredSources.filter((s) => !availability[s]);
+  const sourceKindByCode: Record<WeatherSourceCode, SourceKind> = {
+    wunderground: classifySourceKind('wunderground'),
+    wunderground_daily: classifySourceKind('wunderground_daily'),
+    weather_com: classifySourceKind('weather.com'),
+    wunderground_history: classifySourceKind('wunderground_history'),
+    nws_hourly: classifySourceKind('nws_hourly'),
+    open_meteo: classifySourceKind('open_meteo'),
+    aviationweather: classifySourceKind('aviationweather'),
+    wttr: classifySourceKind('wttr'),
+    met_no: classifySourceKind('met_no'),
+    weatherapi: classifySourceKind('weatherapi'),
+    qweather: classifySourceKind('qweather')
+  };
+  const availableKinds = new Set<SourceKind>(
+    (Object.entries(availability) as Array<[WeatherSourceCode, boolean]>)
+      .filter(([, ok]) => ok)
+      .map(([code]) => sourceKindByCode[code])
+  );
+  const missingKinds = strictRequiredKinds.filter((k) => !availableKinds.has(k));
+  const missingExplicitSources: WeatherSourceCode[] = strictRequiredSources.filter((s) => !availability[s]);
+  const strictMode: 'source' | 'kind' = strictRequiredSources.length > 0 ? 'source' : 'kind';
+  const missingSources = strictMode === 'source'
+    ? missingExplicitSources
+    : missingKinds.map((k) => `kind:${k}` as unknown as WeatherSourceCode);
   const strictReady = missingSources.length === 0;
 
   const data = await buildAssistFromTargetDay(openMeteoRows, openMeteoDailyMax, nwsRows, wttrRows, metNoRows, targetKey, {
@@ -602,6 +660,8 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
     stationLon: RESOLUTION_STATION.longitude,
     stationTimezone: RESOLUTION_STATION.timezone,
     strictRequiredSources,
+    strictRequiredKinds,
+    strictMode,
     strictReady,
     missingSources,
     errors,
@@ -620,7 +680,12 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
       paid: ['weatherapi', 'qweather']
     },
     weatherapiMeta: weatherApiMeta
-  }, weatherApiDailyMax, qWeatherDailyMax, wuNowcasting, wuDailyMax, wuPeakWindow, aviationMetar, aviationTaf, marketId);
+  }, weatherApiDailyMax, qWeatherDailyMax, wuNowcasting, wuDailyMax, wuPeakWindow, aviationMetar, aviationTaf, {
+    nwsUpdatedAt,
+    metNoUpdatedAt,
+    weatherApiUpdatedAt,
+    qWeatherUpdatedAt
+  }, marketId);
 
   return { source: 'api', data };
 }
@@ -910,6 +975,12 @@ async function buildAssistFromTargetDay(
   wuPeakWindow: { startHour: number; endHour: number; medianHour: number; sampleDays: number; method: string } | null,
   aviationMetar: AviationMetarPoint | null,
   aviationTaf: AviationTafPoint | null,
+  sourceUpdatedAt: {
+    nwsUpdatedAt?: string | null;
+    metNoUpdatedAt?: string | null;
+    weatherApiUpdatedAt?: string | null;
+    qWeatherUpdatedAt?: string | null;
+  },
   marketId?: string
 ): Promise<WeatherAssist> {
   const openMeteoTarget = filterByDateKey(openMeteoRows, targetDateKey);
@@ -959,13 +1030,13 @@ async function buildAssistFromTargetDay(
   const fusionExcluded = fusionExcludedSourcesFromEnv();
   const nowTs = Date.now();
   const sourceAgeHours = {
-    wunderground_daily: wuNowcasting?.observedAt ? Math.max(0, (nowTs - wuNowcasting.observedAt.getTime()) / 3600000) : 1,
-    open_meteo: 1,
-    nws_hourly: 1,
-    wttr: 1,
-    met_no: 1,
-    weatherapi: 1,
-    qweather: 1
+    wunderground_daily: estimateSourceAgeHours(wuNowcasting?.observedAt ?? null, nowTs),
+    open_meteo: nearestRowAgeHours(openMeteoRows, nowTs),
+    nws_hourly: estimateSourceAgeHours(sourceUpdatedAt.nwsUpdatedAt, nowTs),
+    wttr: nearestRowAgeHours(wttrRows, nowTs),
+    met_no: estimateSourceAgeHours(sourceUpdatedAt.metNoUpdatedAt ?? (metNoRows[0]?.time ?? null), nowTs),
+    weatherapi: estimateSourceAgeHours(sourceUpdatedAt.weatherApiUpdatedAt, nowTs),
+    qweather: estimateSourceAgeHours(sourceUpdatedAt.qWeatherUpdatedAt, nowTs)
   };
   const sourceHealth = marketId
     ? Object.fromEntries(await Promise.all([
@@ -1302,10 +1373,22 @@ function aggregateCalibration(rows: BiasRowLite[]) {
 async function loadFusionCalibrations(ctx: CalibrationLoadContext): Promise<HistoricalCalibration[]> {
   const enableFusionCalibration = (process.env.ENABLE_FUSION_CALIBRATION ?? 'false').toLowerCase() === 'true';
   if (!enableFusionCalibration) return [];
+  let prisma: unknown = null;
+  try {
+    const mod = await import('@/lib/db');
+    prisma = mod.prisma;
+  } catch {
+    return [];
+  }
+  const prismaClient = prisma as {
+    forecastSourceBias: {
+      findMany: (args: unknown) => Promise<unknown[]>;
+    };
+  };
   const lookbackDays = Number(process.env.FUSION_CALIBRATION_LOOKBACK_DAYS ?? '60');
   const minBucketSamples = Number(process.env.FUSION_CALIBRATION_BUCKET_MIN_SAMPLES ?? '6');
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-  const rows = await prisma.forecastSourceBias.findMany({
+  const rows = await prismaClient.forecastSourceBias.findMany({
     where: { capturedAt: { gte: since } },
     select: {
       sourceCode: true,
@@ -1555,6 +1638,24 @@ function toDateKey(date: Date) {
   const m = parts.find((p) => p.type === 'month')?.value ?? '00';
   const d = parts.find((p) => p.type === 'day')?.value ?? '00';
   return `${y}-${m}-${d}`;
+}
+
+function estimateSourceAgeHours(updatedAt: string | Date | null | undefined, nowTs: number) {
+  if (!updatedAt) return 0;
+  const ts = typeof updatedAt === 'string' ? new Date(updatedAt).getTime() : updatedAt.getTime();
+  if (!Number.isFinite(ts)) return 0;
+  return Math.max(0, (nowTs - ts) / 3600000);
+}
+
+function nearestRowAgeHours(rows: HourlyPoint[], nowTs: number) {
+  if (!rows.length) return 0;
+  const nearest = rows.reduce((best, row) => {
+    const diff = Math.abs(row.time.getTime() - nowTs);
+    if (!best || diff < best.diff) return { diff, row };
+    return best;
+  }, null as { diff: number; row: HourlyPoint } | null);
+  if (!nearest) return 0;
+  return Math.max(0, nearest.diff / 3600000);
 }
 
 function tomorrowInShanghai() {

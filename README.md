@@ -8,6 +8,10 @@ A single-user, read-only research and trading-assist platform for Polymarket Sha
 - No wallet/private key integration
 - Core output: `Decision` / `Position` / `Reason`
 
+Core docs:
+- Product Spec (CN): [`docs/PRODUCT_SPEC.zh-CN.md`](/Users/caiyu/Desktop/未命名文件夹/shanghai/docs/PRODUCT_SPEC.zh-CN.md)
+- Change Workflow (CN): [`docs/CHANGE_WORKFLOW.zh-CN.md`](/Users/caiyu/Desktop/未命名文件夹/shanghai/docs/CHANGE_WORKFLOW.zh-CN.md)
+
 ---
 
 ## 1) Positioning
@@ -163,7 +167,17 @@ npm run compare:openmeteo-wu
 
 ---
 
-## 10) Environment Variables
+## 10) Local-only Mode
+
+This repo is now maintained as **local-first only**.
+
+- No Cloudflare deployment path
+- No Node service split deployment path
+- Use local `Next.js + Prisma + SQLite` as the single source of truth
+
+---
+
+## 11) Environment Variables
 
 Copy `.env.example` and configure as needed.
 
@@ -183,7 +197,7 @@ Important keys:
 
 ---
 
-## 11) Port Notes
+## 12) Port Notes
 
 - Default: `3000`
 - If occupied: fallback to `3001`
@@ -191,7 +205,7 @@ Important keys:
 
 ---
 
-## 12) Scheduling
+## 13) Scheduling
 
 `npm run jobs` (node-cron):
 - Market: every 5 min
@@ -205,7 +219,7 @@ Manual APIs:
 
 ---
 
-## 13) Final Output
+## 14) Final Output
 
 - `Decision`: `BUY / WATCH / PASS`
 - `Position`: suggested size
@@ -213,6 +227,6 @@ Manual APIs:
 
 ---
 
-## 14) Disclaimer
+## 15) Disclaimer
 
 This project is for research and decision support only, not investment advice.

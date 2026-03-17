@@ -5,6 +5,7 @@ import { fetchShanghaiMarket } from '@/lib/services/polymarket';
 import { parseResolutionMetadata } from '@/lib/services/resolution-parser';
 import { fetchShanghaiWeatherAssist } from '@/lib/services/weather-assist';
 import { fetchWundergroundSettledMaxTemp } from '@/lib/services/wunderground-settlement';
+import { targetDayEndSettlementAt } from '@/lib/utils/market-time';
 import { estimateProjectedFinalTemperature } from '@/src/lib/trading-engine/model';
 import { computeConstraintBounds } from '@/src/lib/trading-engine/constraints';
 import {
@@ -90,6 +91,11 @@ function shanghaiDayRangeUtc(dateKey: string) {
     start: new Date(`${dateKey}T00:00:00+08:00`),
     end: new Date(`${dateKey}T23:59:59.999+08:00`)
   };
+}
+
+function shanghaiDayDateFilter(dateKey: string) {
+  const { start, end } = shanghaiDayRangeUtc(dateKey);
+  return { gte: start, lte: end };
 }
 
 async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
@@ -370,8 +376,8 @@ function enforceDateAlignmentGate(
   };
 }
 
-export async function refreshMarketData() {
-  const marketRes = await fetchShanghaiMarket();
+export async function refreshMarketData(targetDateKey?: string | null) {
+  const marketRes = await fetchShanghaiMarket({ targetDateKey });
   const m = marketRes.data;
 
   const market = await prisma.market.upsert({
@@ -442,9 +448,10 @@ export async function refreshMarketData() {
   return market;
 }
 
-export async function refreshWeatherData() {
+export async function refreshWeatherData(targetDateKey?: string | null) {
+  const targetWhere = targetDateKey ? { targetDate: shanghaiDayDateFilter(targetDateKey) } : {};
   const market = await prisma.market.findFirst({
-    where: { ...SHANGHAI_TEMP_MARKET_WHERE, isActive: true },
+    where: { ...SHANGHAI_TEMP_MARKET_WHERE, ...targetWhere, isActive: true },
     orderBy: [{ targetDate: 'desc' }, { updatedAt: 'desc' }]
   });
   if (!market) return null;
@@ -478,9 +485,14 @@ export async function refreshWeatherData() {
   });
 }
 
-export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePercent = 0.1) {
+export async function runModelAndDecision(
+  totalCapital = 10000,
+  maxSingleTradePercent = 0.1,
+  targetDateKey?: string | null
+) {
+  const targetWhere = targetDateKey ? { targetDate: shanghaiDayDateFilter(targetDateKey) } : {};
   const market = await prisma.market.findFirst({
-    where: SHANGHAI_TEMP_MARKET_WHERE,
+    where: { ...SHANGHAI_TEMP_MARKET_WHERE, ...targetWhere },
     include: {
       bins: { orderBy: { outcomeIndex: 'asc' } },
       resolutionMetadata: true,
@@ -682,7 +694,7 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
   const decision = runTradingDecision({
     now: new Date(),
     targetDate: market.targetDate,
-    marketEndAt: market.targetDate,
+    marketEndAt: targetDayEndSettlementAt(market.targetDate),
     marketActive: market.isActive,
     observedMaxTemp: todayMaxTemp,
     futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
@@ -815,12 +827,12 @@ export async function runModelAndDecision(totalCapital = 10000, maxSingleTradePe
   return { market, weather, modelRun, decision: finalDecision };
 }
 
-export async function runFullRefresh() {
+export async function runFullRefresh(targetDateKey?: string | null) {
   const totalCapital = Number(process.env.TOTAL_CAPITAL ?? '10000');
   const maxSingleTradePercent = Number(process.env.MAX_SINGLE_TRADE_PERCENT ?? '0.1');
-  await refreshMarketData();
-  await refreshWeatherData();
-  const result = await runModelAndDecision(totalCapital, maxSingleTradePercent);
+  await refreshMarketData(targetDateKey);
+  await refreshWeatherData(targetDateKey);
+  const result = await runModelAndDecision(totalCapital, maxSingleTradePercent, targetDateKey);
   await syncSettledResults();
   return result;
 }

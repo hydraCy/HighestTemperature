@@ -1,7 +1,5 @@
-import { getDashboardDataD1, getMarketDetailD1 } from '@/lib/services/query-d1';
 import { fromJsonString } from '@/lib/utils/json';
-
-const USE_D1 = process.env.CF_USE_D1 === 'true';
+import { targetDayEndSettlementAt } from '@/lib/utils/market-time';
 
 const SHANGHAI_TEMP_MARKET_WHERE = {
   cityName: 'Shanghai',
@@ -11,23 +9,37 @@ const SHANGHAI_TEMP_MARKET_WHERE = {
   ]
 };
 
+function shanghaiDayRange(dateKey?: string) {
+  if (!dateKey) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+  const start = new Date(`${dateKey}T00:00:00+08:00`);
+  if (!Number.isFinite(start.getTime())) return null;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { gte: start, lt: end };
+}
+
 function marketStatusOf(market: { targetDate: Date; isActive: boolean }) {
   const now = new Date();
-  const minutesToSettlement = Math.floor((market.targetDate.getTime() - now.getTime()) / 60000);
+  const settlementAt = targetDayEndSettlementAt(market.targetDate);
+  const minutesToSettlement = Math.floor((settlementAt.getTime() - now.getTime()) / 60000);
   const isSettled = minutesToSettlement <= 0 || !market.isActive;
   return {
     now,
-    settlementAt: market.targetDate,
+    settlementAt,
     minutesToSettlement,
     isSettled
   };
 }
 
-export async function getDashboardData() {
-  if (USE_D1) return getDashboardDataD1();
+export async function getDashboardData(targetDateKey?: string) {
   const { prisma } = await import('@/lib/db');
+  const dayRange = shanghaiDayRange(targetDateKey);
   const market = await prisma.market.findFirst({
-    where: SHANGHAI_TEMP_MARKET_WHERE,
+    where: {
+      ...SHANGHAI_TEMP_MARKET_WHERE,
+      ...(dayRange ? { targetDate: dayRange } : {})
+    },
     include: {
       bins: { orderBy: { outcomeIndex: 'asc' } },
       resolutionMetadata: true,
@@ -84,7 +96,6 @@ export async function getDashboardData() {
 }
 
 export async function getMarketDetail(slug: string) {
-  if (USE_D1) return getMarketDetailD1(slug);
   const { prisma } = await import('@/lib/db');
   const market = await prisma.market.findUnique({
     where: { marketSlug: slug },
