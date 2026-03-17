@@ -1,0 +1,50 @@
+{
+  "lambda": 1.0,
+  "baseSigmaTable": {
+    "08": 1.0,
+    "11": 0.95,
+    "14": 0.9,
+    "late": 0.9
+  },
+  "sourceWeightsTable": {
+    "08": {
+      "wunderground": 0.26,
+      "openMeteo": 0.12,
+      "wttr": 0.12,
+      "metNo": 0.18,
+      "weatherAPI": 0.2,
+      "qWeather": 0.12
+    },
+    "11": {
+      "wunderground": 0.3,
+      "openMeteo": 0.1,
+      "wttr": 0.1,
+      "metNo": 0.18,
+      "weatherAPI": 0.2,
+      "qWeather": 0.12
+    },
+    "14": {
+      "wunderground": 0.34,
+      "openMeteo": 0.1,
+      "wttr": 0.08,
+      "metNo": 0.18,
+      "weatherAPI": 0.2,
+      "qWeather": 0.1
+    },
+    "late": {
+      "wunderground": 0.34,
+      "openMeteo": 0.08,
+      "wttr": 0.08,
+      "metNo": 0.2,
+      "weatherAPI": 0.2,
+      "qWeather": 0.1
+    }
+  },
+  "remainingCapTable": {
+    "08": { "q50": 2.0, "q75": 2.5, "q90": 3.0, "q95": 3.5 },
+    "11": { "q50": 1.0, "q75": 1.5, "q90": 2.0, "q95": 2.2 },
+    "14": { "q50": 0.5, "q75": 0.8, "q90": 1.2, "q95": 1.5 },
+    "late": { "q50": 0.3, "q75": 0.6, "q90": 1.0, "q95": 1.2 }
+  }
+}
+

@@ -14,8 +14,11 @@
     "db:seed": "tsx prisma/seed.ts",
     "jobs": "tsx scripts/cron.ts",
     "job:once": "tsx scripts/run-job-once.ts",
+    "probability:demo": "tsx scripts/run-probability-engine-demo.ts",
+    "backtest:demo": "tsx scripts/run-backtest-demo.ts",
     "compare:openmeteo-wu": "tsx scripts/compare-openmeteo-wunderground.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "test:core": "tsx --test tests/backtest.test.ts tests/settlement-mapping.test.ts tests/decision-gates.test.ts tests/model-panel.test.ts tests/backtest-calibration.test.ts tests/probability-engine.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

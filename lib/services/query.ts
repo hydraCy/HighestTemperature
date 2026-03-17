@@ -23,13 +23,24 @@ function marketStatusOf(market: { targetDate: Date; isActive: boolean }) {
   const now = new Date();
   const settlementAt = targetDayEndSettlementAt(market.targetDate);
   const minutesToSettlement = Math.floor((settlementAt.getTime() - now.getTime()) / 60000);
-  const isSettled = minutesToSettlement <= 0 || !market.isActive;
+  const isSettledByTime = minutesToSettlement <= 0;
+  const isSettledByInactive = !market.isActive;
+  const isSettled = isSettledByTime || isSettledByInactive;
   return {
     now,
     settlementAt,
     minutesToSettlement,
-    isSettled
+    isSettled,
+    isSettledByTime,
+    isSettledByInactive,
+    settledReason: isSettledByTime ? 'time_elapsed' : (isSettledByInactive ? 'market_inactive' : 'open')
   };
+}
+
+function effectiveMarketActive(market: { isActive: boolean; rawJson: string | null }) {
+  const raw = fromJsonString<{ isActive?: boolean }>(market.rawJson, {});
+  if (typeof raw.isActive === 'boolean') return raw.isActive;
+  return market.isActive;
 }
 
 export async function getDashboardData(targetDateKey?: string) {
@@ -56,7 +67,10 @@ export async function getDashboardData(targetDateKey?: string) {
 
   const latestRun = market.modelRuns[0] ?? null;
   const latestWeather = market.weatherSnapshots[0] ?? null;
-  const marketStatus = marketStatusOf(market);
+  const marketStatus = marketStatusOf({
+    targetDate: market.targetDate,
+    isActive: effectiveMarketActive(market)
+  });
   const biasStats = await prisma.forecastSourceBias.groupBy({
     by: ['sourceCode', 'sourceGroup'],
     _count: { sourceCode: true },
@@ -117,7 +131,10 @@ export async function getMarketDetail(slug: string) {
     orderBy: [{ isActive: 'desc' }, { targetDate: 'desc' }, { updatedAt: 'desc' }],
     select: { marketSlug: true, targetDate: true }
   });
-  const marketStatus = marketStatusOf(market);
+  const marketStatus = marketStatusOf({
+    targetDate: market.targetDate,
+    isActive: effectiveMarketActive(market)
+  });
   const biasStats = await prisma.forecastSourceBias.groupBy({
     by: ['sourceCode', 'sourceGroup'],
     _count: { sourceCode: true },

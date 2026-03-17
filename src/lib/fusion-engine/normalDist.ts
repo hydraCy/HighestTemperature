@@ -14,7 +14,7 @@ export function erf(x: number) {
 }
 
 export function normalCdf(x: number, mean: number, sigma: number) {
-  const safeSigma = sigma > 0 ? sigma : 1e-6;
+  const safeSigma = Math.max(1e-6, sigma);
   const z = (x - mean) / (safeSigma * Math.sqrt(2));
   return 0.5 * (1 + erf(z));
 }
@@ -25,5 +25,58 @@ export function normalIntervalProbability(
   mean: number,
   sigma: number
 ) {
+  if (!(high > low)) return 0;
   return Math.max(0, normalCdf(high, mean, sigma) - normalCdf(low, mean, sigma));
+}
+
+export function truncatedNormalCdf(
+  x: number,
+  mean: number,
+  sigma: number,
+  lower: number,
+  upper: number
+) {
+  const safeSigma = Math.max(1e-6, sigma);
+
+  if (!(upper > lower)) {
+    if (x < lower) return 0;
+    return 1;
+  }
+
+  if (x <= lower) return 0;
+  if (x >= upper) return 1;
+
+  const lowerCdf = normalCdf(lower, mean, safeSigma);
+  const upperCdf = normalCdf(upper, mean, safeSigma);
+  const z = upperCdf - lowerCdf;
+
+  if (z <= 1e-12) {
+    if (x < lower) return 0;
+    if (x >= upper) return 1;
+    return (x - lower) / (upper - lower);
+  }
+
+  const xCdf = normalCdf(x, mean, safeSigma);
+  return Math.max(0, Math.min(1, (xCdf - lowerCdf) / z));
+}
+
+export function truncatedNormalIntervalProbability(
+  a: number,
+  b: number,
+  mean: number,
+  sigma: number,
+  lower: number,
+  upper: number
+) {
+  if (!(b > a)) return 0;
+  if (!(upper > lower)) return 0;
+
+  const left = Math.max(a, lower);
+  const right = Math.min(b, upper);
+
+  if (!(right > left)) return 0;
+
+  const low = truncatedNormalCdf(left, mean, sigma, lower, upper);
+  const high = truncatedNormalCdf(right, mean, sigma, lower, upper);
+  return Math.max(0, high - low);
 }

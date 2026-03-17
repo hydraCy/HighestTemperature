@@ -4,14 +4,19 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 import { SiteShell } from '@/components/layout/site-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { RefreshAllButton } from '@/components/market/refresh-all-button';
 import { LiveMarketPoller } from '@/components/market/live-market-poller';
 import { AutoRefreshTrigger } from '@/components/market/auto-refresh-trigger';
+import { DecisionCard } from '@/components/decision/decision-card';
+import { ProbabilitySection } from '@/components/decision/probability-section';
+import { MarketComparison } from '@/components/decision/market-comparison';
+import { ContextSummary } from '@/components/decision/context-summary';
+import { ExpandableDebug } from '@/components/decision/expandable-debug';
 import { fromJsonString } from '@/lib/utils/json';
 import { parseWeatherRaw } from '@/lib/utils/weather-raw';
 import { riskLabel } from '@/lib/i18n/risk-labels';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
+import { buildFocusBins } from '@/lib/utils/focus-bins';
 import { formatDateByMode, formatDateTimeByMode } from '@/lib/utils/time-display';
 import { calculatePositionSize } from '@/src/lib/trading-engine/positionSizer';
 import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
@@ -83,6 +88,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherSource: 'Weather Data Source',
           apiStatusTitle: 'Weather API Status',
           status: 'Status',
+          apiDate: 'Date',
           reason: 'Reason',
           statusOk: 'ok',
           statusNoData: 'no_data',
@@ -137,7 +143,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           learnedPeakWindow: 'Learned Peak Window (30d ZSPD)',
           learnedPeakWindowSamples: 'Sample Days',
           apiWuRealtime: 'Wunderground Realtime (ZSPD)',
-          apiWuDaily: 'Wunderground Daily Max',
+          apiWuDaily: 'Wunderground Target-day Max',
           apiWuHistory: 'Wunderground 30d History',
           apiAviation: 'AviationWeather (METAR/TAF)',
           apiWttr: 'wttr',
@@ -267,6 +273,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           weatherSource: '天气数据来源',
           apiStatusTitle: '天气源状态',
           status: '状态',
+          apiDate: '日期',
           reason: '原因',
           statusOk: '正常',
           statusNoData: '无数据',
@@ -321,7 +328,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           learnedPeakWindow: '近30天学习峰值窗口(ZSPD)',
           learnedPeakWindowSamples: '样本天数',
           apiWuRealtime: 'Wunderground 实时(ZSPD)',
-          apiWuDaily: 'Wunderground 次日最高温',
+          apiWuDaily: 'Wunderground 目标日最高温',
           apiWuHistory: 'Wunderground 30天历史',
           apiAviation: 'AviationWeather（METAR/TAF）',
           apiWttr: 'wttr',
@@ -436,7 +443,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const missingSources = (weatherRaw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
   const sourceDailyMax = (weatherRaw as { sourceDailyMax?: { wundergroundDaily?: number | null; nwsHourly?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
   const apiStatusMap = (weatherRaw as {
-    apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean }>;
+    apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean; dateLabel?: string }>;
   } | undefined)?.apiStatus ?? {};
   const nowcasting = (weatherRaw as {
     nowcasting?: {
@@ -486,7 +493,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     ? toShanghaiDateKey(new Date(data.market.targetDate)) === toShanghaiDateKey(new Date())
     : false;
   const shanghaiTodayKey = toShanghaiDateKey(new Date());
-  const selectedDayDate = new Date(`${selectedDateKey}T00:00:00+08:00`);
+  const pageDateKey = selectedDateKey;
+  const selectedDayDate = new Date(`${pageDateKey}T00:00:00+08:00`);
   const prevDay = new Date(selectedDayDate);
   prevDay.setDate(prevDay.getDate() - 1);
   const nextDay = new Date(selectedDayDate);
@@ -496,7 +504,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const riskSet = new Set(data?.latestDecision?.riskFlags ?? []);
   const marketTargetDateKey = data?.market?.targetDate ? toShanghaiDateKey(new Date(data.market.targetDate)) : null;
   const isDateAligned = !marketTargetDateKey || !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
-  const selectedSettlementLabel = `${selectedDateKey} 24:00`;
+  const selectedSettlementLabel = `${pageDateKey} 24:00`;
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   const isWeatherStale = weatherFreshnessMinutes != null
     && Number.isFinite(weatherStaleThresholdMinutes)
@@ -585,8 +593,24 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   });
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
   const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
-  const centerTempRaw = decisionMeta.mostLikelyInteger ?? decisionMeta.calibratedFusedTemp ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? null;
-  const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw) ? Math.round(centerTempRaw) : null;
+  const settlementAnchorTemp =
+    typeof decisionMeta.mostLikelyInteger === 'number' && Number.isFinite(decisionMeta.mostLikelyInteger)
+      ? Math.round(decisionMeta.mostLikelyInteger)
+      : (typeof panelForecastInteger === 'number' && Number.isFinite(panelForecastInteger) ? Math.round(panelForecastInteger) : null);
+  const fusedAnchorTemp =
+    typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
+      ? Math.round(sourceDailyMax.fusedAnchor)
+      : null;
+  const muTempRaw =
+    typeof decisionMeta.settlementMean === 'number' && Number.isFinite(decisionMeta.settlementMean)
+      ? decisionMeta.settlementMean
+      : (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
+          ? sourceDailyMax.fusedContinuous
+          : null);
+  const centerTemp =
+    settlementAnchorTemp
+      ?? fusedAnchorTemp
+      ?? (typeof muTempRaw === 'number' ? Math.round(muTempRaw) : null);
   const isTargetBin = (label: string) => {
     if (centerTemp == null) return false;
     const p = parseTemperatureBin(label);
@@ -612,24 +636,37 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     const constrainedNetEv = b.engineConstrainedEdge ?? (grossEdge - tradingCost);
     return { ...b, bestSide: side as 'YES' | 'NO', bestEdge: constrainedNetEv, constrainedEv: constrainedNetEv, isNearCertain };
   });
-  const focusMin = centerTemp != null ? centerTemp - 2.5 : null;
-  const focusMax = centerTemp != null ? centerTemp + 2.5 : null;
-  const highProbLabels = new Set(
-    allBinsWithGlobalSide
-      .filter((b) => (b.constrainedEv ?? Number.NEGATIVE_INFINITY) >= 0.03 || b.label === data?.latestDecision?.recommendedBin)
-      .map((b) => b.label),
-  );
-  const isFocusedBin = (label: string) => {
-    if (highProbLabels.has(label)) return true;
-    if (focusMin == null || focusMax == null) return true;
-    const p = parseTemperatureBin(label);
-    if (p.min == null && p.max == null) return true;
-    const lo = p.min ?? Number.NEGATIVE_INFINITY;
-    const hi = p.max ?? Number.POSITIVE_INFINITY;
-    return hi > focusMin && lo < focusMax;
+  const focusLabels = centerTemp != null ? buildFocusBins(centerTemp) : [];
+  const mapLabelToRow = (focusLabel: string) => {
+    const exact = allBinsWithGlobalSide.find((b) => b.label === focusLabel);
+    if (exact) return exact;
+
+    const parsedFocus = parseTemperatureBin(focusLabel);
+    return allBinsWithGlobalSide.find((b) => {
+      const parsed = parseTemperatureBin(b.label);
+      const minSame =
+        (parsed.min == null && parsedFocus.min == null)
+        || (parsed.min != null && parsedFocus.min != null && Math.abs(parsed.min - parsedFocus.min) < 0.01);
+      const maxSame =
+        (parsed.max == null && parsedFocus.max == null)
+        || (parsed.max != null && parsedFocus.max != null && Math.abs(parsed.max - parsedFocus.max) < 0.01);
+      return minSame && maxSame;
+    }) ?? null;
   };
-  const focusedBins = allBinsWithGlobalSide.filter((b) => isFocusedBin(b.label));
-  const tailBins = allBinsWithGlobalSide.filter((b) => !isFocusedBin(b.label));
+  const focusRows = focusLabels.map((label) => {
+    const row = mapLabelToRow(label);
+    return {
+      label,
+      modelProbability: row?.modelProbability ?? 0,
+      marketPriceYes: row?.marketPrice ?? 0,
+      marketPriceNo: row?.noMarketPrice ?? 1,
+      edge: row?.edgeYes ?? 0,
+      constrainedEv: row?.constrainedEv ?? Number.NEGATIVE_INFINITY,
+      preferredSide: (row?.bestSide ?? '-') as 'YES' | 'NO' | 'SKIP' | '-'
+    };
+  });
+  const focusedLabelSet = new Set(focusLabels);
+  const focusedBins = allBinsWithGlobalSide.filter((b) => focusedLabelSet.has(b.label));
   const topProfit = [...allBinsWithGlobalSide].sort((a, b) => (b.constrainedEv ?? Number.NEGATIVE_INFINITY) - (a.constrainedEv ?? Number.NEGATIVE_INFINITY))[0];
   const rankingBaseBins = focusedBins.length > 0 ? focusedBins : allBinsWithGlobalSide;
   const coverageBaseBins = (focusedBins.length > 0 ? focusedBins : allBinsWithGlobalSide)
@@ -736,10 +773,52 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const lockReason = data?.marketStatus?.isSettled
     ? `${t.settledTitle}`
     : `near_settlement=${nearSettlement ? 'yes' : 'no'}, stalled_rise=${stalledRise ? 'yes' : 'no'}, future_not_break_max=${futureCapped ? 'yes' : 'no'}`;
+  const settledReasonText =
+    data?.marketStatus?.settledReason === 'time_elapsed'
+      ? (lang === 'en' ? 'Reason: settlement time elapsed' : '原因：已到结算时间')
+      : data?.marketStatus?.settledReason === 'market_inactive'
+        ? (lang === 'en' ? 'Reason: market is inactive/closed' : '原因：市场已 inactive/closed')
+        : (lang === 'en' ? 'Reason: unknown' : '原因：未知');
+  const decisionMain = data?.latestDecision;
+  const decisionReasonRaw = (lang === 'en' ? decisionMain?.reasonEn : decisionMain?.reasonZh) ?? decisionMain?.reason ?? '';
+  const warmingForecastPeak = (() => {
+    const vals = [
+      nowcasting?.currentTemp,
+      nowcasting?.todayMaxTemp,
+      ...(nowcasting?.futureHours ?? []).slice(0, 6).map((h) => h.temp)
+    ].filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+    if (!vals.length) return null;
+    return Math.max(...vals);
+  })();
+  const probabilityRows = focusRows;
+  const compareRows = [...focusRows]
+    .sort((a, b) => b.constrainedEv - a.constrainedEv)
+    .slice(0, 3)
+    .map((row) => ({
+      label: row.label,
+      modelProbability: row.modelProbability,
+      marketPriceYes: row.marketPriceYes,
+      marketPriceNo: row.marketPriceNo,
+      edge: row.edge
+    }));
+  const remainingCap = (decisionMeta as { constraints?: { maxPotentialRise?: number } }).constraints?.maxPotentialRise;
+  const compactStatus = [
+    `${t.currentTemp}: ${nowcasting?.currentTemp != null ? `${nowcasting.currentTemp.toFixed(1)}°C` : '-'}`,
+    `${t.todayObservedMax}: ${isTargetDateToday && nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(0)}°C` : '-'}`,
+    `${lang === 'en' ? 'Remaining cap' : '剩余上限'}: ${typeof remainingCap === 'number' ? `+${remainingCap.toFixed(1)}°C` : '-'}`,
+    `${t.scenarioTag}: ${scenarioLabel(nowcasting?.scenarioTag)}`
+  ].join(' | ');
+  const contextWarningText =
+    (data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrorsEffective.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale)
+      ? `${t.warningPrefix}（${t.warningMarket}：${sourceLabel(data?.marketSource)}，${t.warningWeather}：${sourceLabel(data?.weatherSource)}）`
+      : '';
+  const contextSettledText = data?.marketStatus?.isSettled
+    ? `${t.settledTitle}（${t.settlementTime}：${selectedSettlementLabel}）。${settledReasonText} ${t.settledForcePass}`
+    : '';
 
   return (
     <SiteShell currentPath="/" lang={lang}>
-      <AutoRefreshTrigger targetDateKey={selectedDateKey} />
+      <AutoRefreshTrigger targetDateKey={pageDateKey} />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-muted-foreground">{t.mode}</p>
@@ -757,7 +836,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
             >
               {t.datePrev}
             </Link>
-            <span className="border-l border-border px-2 py-1">{selectedDateKey}</span>
+            <span className="border-l border-border px-2 py-1">{pageDateKey}</span>
             <Link
               href={`/?lang=${lang}&d=${nextDayKey}`}
               className="border-l border-border px-2 py-1 text-muted-foreground"
@@ -765,7 +844,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
               {t.dateNext}
             </Link>
           </div>
-          <RefreshAllButton lang={lang} targetDateKey={selectedDateKey} />
+          <RefreshAllButton lang={lang} targetDateKey={pageDateKey} />
         </div>
       </div>
       <LiveMarketPoller
@@ -773,471 +852,89 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         marketUpdatedAt={marketUpdatedAtIso}
         weatherUpdatedAt={weatherFetchedAt ?? weatherObservedAt ?? null}
       />
-      <Card>
-        <CardHeader><CardTitle>{t.dateTags}</CardTitle></CardHeader>
-        <CardContent className="grid gap-2 text-sm md:grid-cols-4">
-          <p>{t.targetDate}: {formatDateByMode(data?.market?.targetDate ?? null, 'shanghai')}</p>
-          <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
-          <p>{t.shanghaiToday}: {shanghaiTodayKey}</p>
-          <p>{t.settlementTime}: {selectedSettlementLabel}</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>{t.gatePanel}</CardTitle></CardHeader>
-        <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateDate}</span><Badge variant={isDateAligned ? 'success' : 'destructive'}>{isDateAligned ? t.gatePass : t.gateBlock}</Badge></div>
-          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateFreshness}</span><Badge variant={isWeatherStale ? 'destructive' : 'success'}>{isWeatherStale ? t.gateBlock : t.gatePass}</Badge></div>
-          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateSources}</span><Badge variant={strictReady ? 'success' : 'destructive'}>{strictReady ? t.gatePass : t.gateBlock}</Badge></div>
-          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1"><span>{t.gateConsensus}</span><Badge variant={riskSet.has('market_consensus_conflict') ? 'warning' : 'success'}>{riskSet.has('market_consensus_conflict') ? t.gateWarn : t.gatePass}</Badge></div>
-          <div className="flex items-center justify-between rounded border border-border/50 px-2 py-1 md:col-span-2"><span>{t.gateSecondEntry}</span><Badge variant={riskSet.has('second_entry_guard') ? 'warning' : 'success'}>{riskSet.has('second_entry_guard') ? t.gateWarn : t.gatePass}</Badge></div>
-        </CardContent>
-      </Card>
+      <DecisionCard
+        title={lang === 'en' ? 'Decision Card' : '决策卡'}
+        actionLabel={decisionLabel(decisionMain?.decision)}
+        actionVariant={decisionMain?.decision === 'BUY' ? 'success' : decisionMain?.decision === 'WATCH' ? 'warning' : 'secondary'}
+        bestLabel={decisionMain?.recommendedBin ?? '-'}
+        bestSide={decisionMain?.recommendedSide ?? '-'}
+        edge={decisionMain?.edge?.toFixed(3) ?? '-'}
+        modelProb={`${((((decisionMain?.recommendedSide === 'NO' ? recRow?.modelNoProbability : recRow?.modelProbability) ?? 0) * 100)).toFixed(1)}%`}
+        marketPrice={`${((((decisionMain?.recommendedSide === 'NO' ? recRow?.noMarketPrice : recRow?.marketPrice) ?? 0) * 100)).toFixed(1)}%`}
+        tradeScore={decisionMain?.tradeScore?.toFixed(2) ?? '-'}
+        warmingForecast={warmingForecastPeak != null ? `${warmingForecastPeak.toFixed(1)}°C（+1~6h峰值）` : '-'}
+        reasonTitle={lang === 'en' ? 'Why (short)' : '为什么（简要）'}
+        fullReason={decisionReasonRaw}
+        labels={{
+          recBin: t.recBin,
+          recSide: t.recSide,
+          edge: t.edge,
+          modelProb: t.modelProb,
+          marketPx: t.marketPx,
+          tradeScore: t.tradeScore,
+          warmingForecast: lang === 'en' ? 'Warming Model Forecast' : '升温模型预测'
+        }}
+      />
 
-      {(data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrorsEffective.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale) && (
-        <Card className="border-amber-500/30">
-          <CardContent className="p-4 text-sm text-amber-300">
-            {t.warningPrefix}（{t.warningMarket}：{sourceLabel(data?.marketSource)}，{t.warningWeather}：{sourceLabel(data?.weatherSource)}）。
-            {weatherErrorsEffective.length > 0 ? `${t.weatherErrors}：${weatherErrorsEffective.join('；')}` : ''}
-            {!strictReady ? ` ${t.strictBlock}${missingSources.length ? `（${t.strictMissing}：${missingSources.join(', ')}）` : ''}` : ''}
-            {isWeatherStale ? ` ${t.weatherStaleWarn}（${weatherFreshnessMinutes} ${t.mins}，${t.staleThreshold} ${weatherStaleThresholdMinutes} ${t.mins}）` : ''}
-            {resolutionSourceStatus !== 'direct' ? ` ${t.nonDirectResolution}` : ''}
-            {weatherTargetDate && marketTargetDateKey && weatherTargetDate !== marketTargetDateKey ? ` ${t.weatherDateMismatch}: weather=${weatherTargetDate}, market=${marketTargetDateKey}` : ''}
-          </CardContent>
-        </Card>
-      )}
+      <ProbabilitySection
+        title={`${lang === 'en' ? 'Probability (Focus Bins)' : '概率分布（动态聚焦）'}${centerTemp != null ? ` · ${t.centerTemp} ${centerTemp}°C` : ''}`}
+        headers={{
+          bin: t.bin,
+          modelYes: t.modelYes,
+          marketPriceYes: t.ask,
+          marketPriceNo: t.noPrice,
+          edge: t.netEdge,
+          preferredSide: t.preferredSide
+        }}
+        rows={probabilityRows}
+      />
 
-      {data?.marketStatus?.isSettled && (
-        <Card className="border-rose-500/40">
-          <CardContent className="p-4 text-sm text-rose-300">
-            {t.settledTitle}（{t.settlementTime}：{selectedSettlementLabel}）。
-            {t.settledForcePass}
-          </CardContent>
-        </Card>
-      )}
+      <MarketComparison
+        title={lang === 'en' ? 'Model vs Market (Top Relevance)' : '模型 vs 市场（重点对比）'}
+        headers={{
+          bin: t.bin,
+          modelProb: t.modelProb,
+          marketPriceYes: t.ask,
+          marketPriceNo: t.noPrice,
+          edge: t.netEdge
+        }}
+        rows={compareRows}
+      />
 
-      <Card>
-        <CardHeader><CardTitle>{t.resolutionCard}</CardTitle></CardHeader>
-        <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-          <p>{t.station}: {data?.market.resolutionMetadata?.stationName ?? '-'}</p>
-          <p>{t.stationCode}: {data?.market.resolutionMetadata?.stationCode ?? '-'}</p>
-          <p>{t.source}: {data?.market.resolutionMetadata?.sourceName ?? '-'}</p>
-          <p>
-            {t.sourceUrl}:{' '}
-            {data?.market.resolutionMetadata?.sourceUrl ? (
-              <a className="text-primary underline" href={data.market.resolutionMetadata.sourceUrl} target="_blank" rel="noreferrer">{t.open}</a>
-            ) : '-'}
-          </p>
-          <p>{t.precision}: {data?.market.resolutionMetadata?.precisionRule ?? '-'}</p>
-          <p>{t.finalizeRule}: {data?.market.resolutionMetadata?.finalizedRule ?? '-'}</p>
-          <p>{t.marketSource}: <span className={data?.marketSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.marketSource)}</span></p>
-          <p>{t.weatherSource}: <span className={data?.weatherSource === 'api' ? 'text-emerald-400' : 'text-amber-300'}>{sourceLabel(data?.weatherSource)}（Wunderground + AviationWeather + wttr.in + met.no）</span></p>
-          <p>{t.settlementTime}: {selectedSettlementLabel}</p>
-          <p>{t.minsToSettlement}: {typeof data?.marketStatus?.minutesToSettlement === 'number' ? `${data.marketStatus.minutesToSettlement} ${t.mins}` : '-'}</p>
-          <p>{t.weatherTargetDate}: {weatherTargetDate ?? '-'}</p>
-          <p>{t.weatherObservedAt}: {weatherObservedAt ? formatDateTimeByMode(new Date(weatherObservedAt), 'shanghai') : '-'}</p>
-          <p>{t.weatherFetchedAt}: {weatherFetchedAt ? formatDateTimeByMode(new Date(weatherFetchedAt), 'shanghai') : '-'}</p>
-          <p>{t.weatherFreshness}: {weatherFreshnessMinutes != null ? `${weatherFreshnessMinutes} ${t.mins}` : '-'}</p>
-          <p className="md:col-span-2">{t.assistNote}</p>
-        </CardContent>
-      </Card>
+      <ContextSummary
+        title={lang === 'en' ? 'Context Summary' : '上下文摘要'}
+        summary={compactStatus}
+        warningText={contextWarningText}
+        settledText={contextSettledText}
+      />
 
-      <Card>
-        <CardHeader><CardTitle>{t.nowcastingPanel}</CardTitle></CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div className="grid gap-2 md:grid-cols-3">
-            <p>{t.currentTemp}: {nowcasting?.currentTemp != null ? `${nowcasting.currentTemp.toFixed(1)}°C` : '-'}</p>
-            <p>{t.todayObservedMax}: {isTargetDateToday && nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
-            <p>{t.rise123h}: {nowcasting?.tempRise1h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise2h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise3h?.toFixed(2) ?? '-'}</p>
-            <p>{t.cloudCover}: {nowcasting?.cloudCover != null ? `${nowcasting.cloudCover.toFixed(0)}%` : '-'}</p>
-            <p>{t.precipProb}: {nowcasting?.precipitationProb != null ? `${nowcasting.precipitationProb.toFixed(0)}%` : '-'}</p>
-            <p>{t.wind}: {nowcasting?.windSpeed != null ? `${nowcasting.windSpeed.toFixed(1)} km/h` : '-'} / {t.windDir} {nowcasting?.windDirection != null ? `${nowcasting.windDirection.toFixed(0)}°` : '-'}</p>
-            <p>{t.scenarioTag}: {scenarioLabel(nowcasting?.scenarioTag)}</p>
-            <p>{t.weatherMaturity}: {nowcasting?.weatherMaturityScore != null ? nowcasting.weatherMaturityScore.toFixed(0) : '-'}</p>
-            <p>
-              {t.learnedPeakWindow}:{' '}
-              {learnedPeakWindow?.startHour != null && learnedPeakWindow?.endHour != null
-                ? `${learnedPeakWindow.startHour.toFixed(1)}-${learnedPeakWindow.endHour.toFixed(1)}`
-                : '-'}
-              {' | '}
-              {t.learnedPeakWindowSamples}: {learnedPeakWindow?.sampleDays ?? '-'}
-            </p>
-          </div>
-          <div className="rounded border border-border/60 p-2">
-            <p className="mb-1 text-xs font-medium">{t.future1to3h}</p>
-            <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
-              {(nowcasting?.futureHours ?? []).slice(0, 6).map((f) => (
-                <div key={f.hourOffset} className="rounded border border-border/40 p-2 text-xs">
-                  <p>+{f.hourOffset}h</p>
-                  <p>{f.temp.toFixed(1)}°C</p>
-                  <p>{t.cloudCover} {f.cloudCover.toFixed(0)}%</p>
-                  <p>{t.precipProb} {f.precipitationProb.toFixed(0)}%</p>
-                  <p>{t.wind} {f.windSpeed.toFixed(1)} km/h</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded border border-border/60 p-2">
-            <p className="mb-1 text-xs font-medium">{t.apiStatusTitle}</p>
-            <div className="space-y-1">
-              {apiRows.map((r) => {
-                const item = apiStatusMap[r.code];
-                return (
-                  <div key={r.code} className="grid grid-cols-12 gap-2 text-xs">
-                    <p className="col-span-3">{r.label}</p>
-                    <p className="col-span-3">{t.status}: {statusLabel(item?.status)}</p>
-                    <p className="col-span-6 text-muted-foreground">{t.reason}: {item?.reason ?? '-'}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {data?.market.settledResult && (
-        <Card>
-          <CardHeader><CardTitle>{t.recentSettlement}</CardTitle></CardHeader>
-          <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-            <p>{t.finalTemp}: {data.market.settledResult.finalValue.toFixed(0)}°C</p>
-            <p>{t.winningBin}: {data.market.settledResult.finalOutcomeLabel}</p>
-            <p>{t.settledAt}: {formatDateTimeByMode(data.market.settledResult.settledAt, 'shanghai')}</p>
-            <p>
-              {t.settledSource}:{' '}
-              <a className="text-primary underline" href={data.market.settledResult.sourceUrl} target="_blank" rel="noreferrer">
-                {t.wuHistory}
-              </a>
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader><CardTitle>{t.marketPanel}</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p>{t.marketSlug}: {data?.market.marketSlug ?? '-'}</p>
-            <p>{t.marketTitle}: {data?.market.marketTitle ?? '-'}</p>
-            <p>{t.targetDate}: {formatDateByMode(data?.market.targetDate ?? null, 'shanghai')}</p>
-            <p>{t.volume}: {data?.market.volume?.toFixed(0) ?? '-'}</p>
-            {data?.market?.marketSlug && (
-              <p>
-                {t.sourceMarketLink}:{' '}
-                <a
-                  className="text-primary underline"
-                  href={`https://polymarket.com/zh/event/${data.market.marketSlug}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t.openPolymarket}
-                </a>
-              </p>
-            )}
-            <div className="space-y-1">
-              {data?.market.bins.map((b) => (
-                <p key={b.id} className="rounded border border-border/60 px-2 py-1 text-xs">
-                  {b.outcomeLabel} | {t.ask} {b.marketPrice.toFixed(3)} | {t.bid} {b.bestBid?.toFixed(3) ?? '-'} | {t.spread} {b.spread?.toFixed(3) ?? '-'}
-                </p>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>{t.modelPanel}</CardTitle></CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="grid gap-2 md:grid-cols-3">
-              <div className="rounded border border-border/60 bg-card/40 p-2">
-                <p className="text-[11px] text-muted-foreground">{t.dayMaxForecast}</p>
-                <p className="text-lg font-semibold">{strictReady && panelForecastInteger != null ? `${panelForecastInteger.toFixed(0)}°C` : '-'}</p>
-              </div>
-              <div className="rounded border border-border/60 bg-card/40 p-2">
-                <p className="text-[11px] text-muted-foreground">{t.dayMaxContinuous}</p>
-                <p className="text-lg font-semibold">{strictReady && panelForecastContinuous != null ? `${panelForecastContinuous.toFixed(1)}°C` : '-'}</p>
-              </div>
-              <div className="rounded border border-border/60 bg-card/40 p-2">
-                <p className="text-[11px] text-muted-foreground">{t.todayObservedMax}</p>
-                <p className="text-lg font-semibold">{isTargetDateToday && nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(1)}°C` : '-'}</p>
-              </div>
-              <div className="rounded border border-border/60 bg-card/40 p-2">
-                <p className="text-[11px] text-muted-foreground">{t.sourceSpread}</p>
-                <p className="text-lg font-semibold">{strictReady && sourceDailyMax?.spread != null ? `${sourceDailyMax.spread.toFixed(2)}°C` : '-'}</p>
-              </div>
-              <div className="rounded border border-border/60 bg-card/40 p-2">
-                <p className="text-[11px] text-muted-foreground">{t.confidence}</p>
-                <p className="text-lg font-semibold">{strictReady && forecastExplain?.confidence ? t.forecastConfidence[forecastExplain.confidence] : '-'}</p>
-              </div>
-            </div>
-
-            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
-              <p className="font-medium">{t.whyForecast}</p>
-              <p className="leading-relaxed">{strictReady ? (lang === 'en' ? (forecastExplain?.en ?? '-') : (forecastExplain?.zh ?? '-')) : t.strictBlock}</p>
-              <p className="text-muted-foreground">
-                {t.fusionMethod}: {strictReady ? (forecastExplain?.method ?? '-') : '-'}
-              </p>
-              <p className="text-amber-300">{t.resolutionPriorityNote}</p>
-            </div>
-
-            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
-              <p className="font-medium">{t.sourceBreakdown}</p>
-              <p>
-                <span className="text-muted-foreground">{t.freeSources}</span> | Wunderground {sourceDailyMax?.wundergroundDaily != null ? `${Math.round(sourceDailyMax.wundergroundDaily)}°C` : '-'} / wttr {sourceDailyMax?.wttr != null ? `${Math.round(sourceDailyMax.wttr)}°C` : '-'} / met.no {sourceDailyMax?.metNo != null ? `${Math.round(sourceDailyMax.metNo)}°C` : '-'}
-              </p>
-              <p>
-                <span className="text-muted-foreground">{t.paidSources}</span> | {t.weatherApi} {sourceDailyMax?.weatherApi != null ? `${Math.round(sourceDailyMax.weatherApi)}°C` : '-'} / {t.qweather} {(sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) != null ? `${Math.round((sourceDailyMax?.qWeather ?? sourceDailyMax?.cmaChina) ?? 0)}°C` : '-'}
-              </p>
-            </div>
-
-            <div className="rounded border border-border/60 p-2 text-xs">
-              <p className="mb-2 font-medium">{t.weightBreakdown}</p>
-              {!strictReady || !(forecastExplain?.weightBreakdown?.length) ? (
-                <p className="text-muted-foreground">-</p>
-              ) : (
-                <table className="w-full">
-                  <thead className="text-muted-foreground">
-                    <tr>
-                      <th className="text-left">{t.sourceCol}</th>
-                      <th className="text-left">{t.rawTempCol}</th>
-                      <th className="text-left">{t.adjTempCol}</th>
-                      <th className="text-left">{t.weightCol}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {forecastExplain.weightBreakdown
-                      .slice()
-                      .sort((a, b) => b.weight - a.weight)
-                      .map((w) => (
-                        <tr key={w.source} className="border-t border-border/40">
-                          <td>{w.source}</td>
-                          <td>{w.raw.toFixed(1)}°C</td>
-                          <td>{w.adjusted.toFixed(1)}°C</td>
-                          <td>{w.weight.toFixed(1)}%</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-3">
-              <div className="rounded border border-border/60 p-2 text-xs">
-                <p className="text-muted-foreground">{t.rise123h}</p>
-                <p>{nowcasting?.tempRise1h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise2h?.toFixed(2) ?? '-'} / {nowcasting?.tempRise3h?.toFixed(2) ?? '-'}</p>
-              </div>
-              <div className="rounded border border-border/60 p-2 text-xs">
-                <p className="text-muted-foreground">{t.peakCloud} / {t.peakPrecip}</p>
-                <p>{nowcasting?.cloudCover?.toFixed(0) ?? '-'}% / {nowcasting?.precipitationProb != null ? `${nowcasting.precipitationProb.toFixed(0)}%` : '-'}</p>
-              </div>
-              <div className="rounded border border-border/60 p-2 text-xs">
-                <p className="text-muted-foreground">{t.peakWind}</p>
-                <p>{nowcasting?.windSpeed?.toFixed(1) ?? '-'} km/h</p>
-              </div>
-            </div>
-
-            <div className="rounded border border-border/60 p-2">
-              <p className="mb-2 text-xs font-medium">{t.opportunityRanking}</p>
-              <table className="w-full text-xs">
-                <thead className="text-muted-foreground">
-                  <tr>
-                    <th className="text-left">{t.rank}</th>
-                    <th className="text-left">{t.bin}</th>
-                    <th className="text-left">{t.side}</th>
-                    <th className="text-left">{t.modelProb}</th>
-                    <th className="text-left">{t.marketPx}</th>
-                    <th className="text-left">{t.netEdge}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {strictReady ? opportunityRows.map((r, idx) => (
-                    <tr key={`${r.label}-${r.side}`} className="border-t border-border/40">
-                      <td>{idx + 1}</td>
-                      <td>{r.label}</td>
-                      <td>{r.side}</td>
-                      <td>{(r.modelProb * 100).toFixed(1)}%</td>
-                      <td>{(r.marketPx * 100).toFixed(1)}%</td>
-                      <td className={r.netEdge >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{r.netEdge.toFixed(3)}</td>
-                    </tr>
-                  )) : (
-                    <tr className="border-t border-border/40">
-                      <td colSpan={6} className="py-2 text-amber-300">{t.strictBlock}</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="rounded border border-border/60 p-2">
-              <p className="mb-1 text-xs font-medium">{t.coveragePanel}</p>
-              <p className="mb-2 text-[11px] text-muted-foreground">{t.coverageDesc}</p>
-              {bestCoverage ? (
-                <p className="mb-2 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300">
-                  {t.coverageBest}: {bestCoverage.labels.join(' + ')} | {t.coverageNet} {bestCoverage.netEdge.toFixed(3)}
-                </p>
-              ) : (
-                <p className="mb-2 rounded border border-border/60 px-2 py-1 text-[11px] text-muted-foreground">{t.coverageNoEdge}</p>
-              )}
-              <table className="w-full text-xs">
-                <thead className="text-muted-foreground">
-                  <tr>
-                    <th className="text-left">{t.coverageLegs}</th>
-                    <th className="text-left">{t.coverageCost}</th>
-                    <th className="text-left">{t.coverageProb}</th>
-                    <th className="text-left">{t.coveragePayout}</th>
-                    <th className="text-left">{t.coverageNet}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {coverageRows.map((r) => (
-                    <tr key={r.labels.join('|')} className="border-t border-border/40">
-                      <td>{r.labels.join(' + ')}</td>
-                      <td>{(r.cost * 100).toFixed(1)}%</td>
-                      <td>{(r.coverProb * 100).toFixed(1)}%</td>
-                      <td className={r.payoutIfHit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{(r.payoutIfHit * 100).toFixed(1)}%</td>
-                      <td className={r.netEdge >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{r.netEdge.toFixed(3)}</td>
-                    </tr>
-                  ))}
-                  {coverageRows.length === 0 && (
-                    <tr className="border-t border-border/40">
-                      <td colSpan={5} className="py-2 text-muted-foreground">-</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="rounded border border-border/60 p-2 text-xs">
-              <p className="mb-2 font-medium">{t.sourceBiasTitle}</p>
-              <div className="space-y-1">
-                {(biasStats.length ? biasStats : []).map((s) => (
-                  <p key={`${s.sourceCode}-${s.sourceGroup}`} className="grid grid-cols-12 gap-2">
-                    <span className="col-span-3">{s.sourceCode}</span>
-                    <span className="col-span-3 text-muted-foreground">{t.avgBias}: {s._avg.bias?.toFixed(2) ?? '-'}°C</span>
-                    <span className="col-span-3 text-muted-foreground">{t.mae}: {s._avg.absError?.toFixed(2) ?? '-'}°C</span>
-                    <span className="col-span-3 text-muted-foreground">{t.samples}: {s._count.sourceCode}</span>
-                  </p>
-                ))}
-                {!biasStats.length && <p className="text-muted-foreground">-</p>}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>{t.decisionPanel}</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs">
-              {t.topEdge}：{topProfit?.label ?? '-'} / {(topProfit?.bestSide ?? '-')}（Edge {(topProfit?.bestEdge ?? 0).toFixed(3)}）
-            </p>
-            <div className={`rounded border p-2 text-xs ${lockLikely ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
-              <p className="font-medium">{t.lockHintTitle}</p>
-              <p>{lockLikely ? t.lockLikely : t.lockOpen}</p>
-              <p className="text-muted-foreground">{t.lockReason}: {lockReason}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span>{t.decision}:</span>
-              <Badge variant={data?.latestDecision?.decision === 'BUY' ? 'success' : data?.latestDecision?.decision === 'WATCH' ? 'warning' : 'secondary'}>
-                {decisionLabel(data?.latestDecision?.decision)}
-              </Badge>
-            </div>
-            <p>{t.recBin}: {data?.latestDecision?.recommendedBin ?? '-'}</p>
-            <p>{t.recSide}: {data?.latestDecision?.recommendedSide ?? '-'}</p>
-            <p>{t.edge}: {data?.latestDecision?.edge?.toFixed(3) ?? '-'}</p>
-            <p>{t.tradeScore}: {data?.latestDecision?.tradeScore?.toFixed(2) ?? '-'}</p>
-            <p>{t.timingScore}: {data?.latestDecision?.timingScore?.toFixed(0) ?? '-'}</p>
-            <p>{t.weatherScore}: {data?.latestDecision?.weatherScore?.toFixed(0) ?? '-'}</p>
-            <p>{t.dataQualityScore}: {data?.latestDecision?.dataQualityScore?.toFixed(0) ?? '-'}</p>
-            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
-              <p className="font-medium">{t.bankrollCalc}</p>
-              <p>{t.bankrollBase}: {stakeBase}u</p>
-              <p>{t.bankrollProb}: {(sideProb * 100).toFixed(1)}%</p>
-              <p>{t.bankrollPrice}: {(entryPrice * 100).toFixed(1)}%</p>
-              <p className="text-emerald-300">{t.bankrollStake}: {bankrollStake.toFixed(2)}u</p>
-            </div>
-            <div className="rounded border border-border/60 p-2 text-xs space-y-1">
-              <p className="font-medium">{t.actionableTop3}</p>
-              {strictReady && actionableRows.length > 0 ? actionableRows.map((r, idx) => (
-                <p key={`${r.label}-${r.side}`} className="grid grid-cols-12 gap-2">
-                  <span className="col-span-1">{idx + 1}</span>
-                  <span className="col-span-3">{r.label}</span>
-                  <span className="col-span-2">{r.side}</span>
-                  <span className="col-span-3">{(r.marketPx * 100).toFixed(1)}%</span>
-                  <span className="col-span-3 text-emerald-400">{r.netEdge.toFixed(3)}</span>
-                </p>
-              )) : (
-                <p className="text-muted-foreground">-</p>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {(data?.latestDecision?.riskFlags ?? []).map((r) => (
-                <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{riskLabel(r, lang)}</span>
-              ))}
-            </div>
-            <p className="rounded border border-border/60 p-2 text-xs">{(lang === 'en' ? data?.latestDecision?.reasonEn : data?.latestDecision?.reasonZh) ?? t.noDecision}</p>
-            {data?.market && <Link className="text-sm text-primary underline" href={`/market/${data.market.marketSlug}?lang=${lang}`}>{t.detail}</Link>}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t.focusedBins}</CardTitle>
-          <p className="text-xs text-muted-foreground">{t.centerTemp}: {centerTemp != null ? `${centerTemp}°C` : '-'}</p>
-        </CardHeader>
-        <CardContent className="overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs text-muted-foreground">
-              <tr>
-                <th className="text-left">{t.bin}</th>
-                <th className="text-left">{t.ask}</th>
-                <th className="text-left">{t.noPrice}</th>
-                <th className="text-left">{t.bid}</th>
-                <th className="text-left">{t.spread}</th>
-                <th className="text-left">{t.modelYes}</th>
-                <th className="text-left">{t.modelNo}</th>
-                <th className="text-left">{t.evConstrained}</th>
-                <th className="text-left">{t.preferredSide}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {focusedBins.map((o) => (
-                <tr key={o.label} className="border-t border-border/60">
-                  <td>{o.label}</td>
-                  <td>{(o.marketPrice * 100).toFixed(1)}%</td>
-                  <td>{(o.noMarketPrice * 100).toFixed(1)}%</td>
-                  <td>{o.bestBid != null ? `${(o.bestBid * 100).toFixed(1)}%` : '-'}</td>
-                  <td>{o.spread != null ? `${(o.spread * 100).toFixed(1)}%` : '-'}</td>
-                  <td>{(o.modelProbability * 100).toFixed(1)}%</td>
-                  <td>{(o.modelNoProbability * 100).toFixed(1)}%</td>
-                  <td className={o.constrainedEv == null ? 'text-muted-foreground' : o.constrainedEv >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                    {o.constrainedEv == null ? '-' : o.constrainedEv.toFixed(3)}
-                  </td>
-                  <td>{o.bestSide === 'SKIP' ? '-' : o.bestSide}</td>
-                </tr>
-              ))}
-              {tailBins.length > 0 && (
-                <tr className="border-t border-border/60">
-                  <td colSpan={9} className="py-2 text-xs text-muted-foreground">
-                    {t.tailBins}: {tailBins.map((b) => b.label).join(', ')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>{t.snapshots}</CardTitle></CardHeader>
-        <CardContent className="space-y-1 text-xs">
-          {(data?.snapshots ?? []).slice(0, 8).map((s) => {
-            const out = fromJsonString<{ decision?: string; tradeScore?: number; recommendedBin?: string }>(s.tradingOutputJson, {});
-            return (
-              <p key={s.id} className="rounded border border-border/60 px-2 py-1">
-                {format(s.capturedAt, 'yyyy-MM-dd HH:mm')} | {decisionLabel(out.decision)} | {out.recommendedBin ?? '-'} | {t.score} {out.tradeScore?.toFixed?.(2) ?? '-'}
-              </p>
-            );
-          })}
-        </CardContent>
-      </Card>
+      <ExpandableDebug
+        title={lang === 'en' ? 'Debug (Collapsed)' : '调试信息（折叠）'}
+        apiStatusTitle={t.apiStatusTitle}
+        apiDateLabel={t.apiDate}
+        statusLabel={t.status}
+        reasonLabel={t.reason}
+        apiRows={apiRows}
+        apiStatusMap={apiStatusMap}
+        statusText={statusLabel}
+        weightTitle={t.weightBreakdown}
+        sourceCol={t.sourceCol}
+        rawCol={t.rawTempCol}
+        adjustedCol={t.adjTempCol}
+        weightCol={t.weightCol}
+        strictReady={strictReady}
+        weightBreakdown={forecastExplain?.weightBreakdown}
+        detailTitle={lang === 'en' ? 'Detailed Explanation' : '详细解释'}
+        detailText={strictReady ? (lang === 'en' ? (forecastExplain?.en ?? '-') : (forecastExplain?.zh ?? '-')) : t.strictBlock}
+        fusionMethodLabel={t.fusionMethod}
+        fusionMethod={strictReady ? (forecastExplain?.method ?? '-') : '-'}
+        resolutionNote={t.resolutionPriorityNote}
+        sourceBiasTitle={t.sourceBiasTitle}
+        avgBiasLabel={t.avgBias}
+        maeLabel={t.mae}
+        samplesLabel={t.samples}
+        biasStats={biasStats}
+      />
     </SiteShell>
   );
 }

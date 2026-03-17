@@ -9,10 +9,11 @@ import { targetDayEndSettlementAt } from '@/lib/utils/market-time';
 import { estimateProjectedFinalTemperature } from '@/src/lib/trading-engine/model';
 import { computeConstraintBounds } from '@/src/lib/trading-engine/constraints';
 import {
-  buildIntegerSettlementDistribution,
-  mapIntegerDistributionToBins,
   pickMostLikelyInteger
 } from '@/src/lib/trading-engine/settlementMapping';
+import { runProbabilityEngine } from '@/src/lib/probability-engine';
+import { liveToProbabilityInput } from '@/src/lib/adapters/live-to-engine';
+import { loadModelConfig } from '@/src/lib/model-config';
 import { runTradingDecision } from '@/src/lib/trading-engine/tradingEngine';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
 import { Prisma } from '@prisma/client';
@@ -57,33 +58,6 @@ function shanghaiHourNow(date: Date) {
       hour: '2-digit'
     }).format(date),
   );
-}
-
-function normalize(values: number[]) {
-  const sum = values.reduce((a, b) => a + b, 0);
-  if (sum <= 0) {
-    const v = 1 / Math.max(1, values.length);
-    return values.map(() => v);
-  }
-  return values.map((x) => x / sum);
-}
-
-function buildIntegerDistributionFromOutcomeProbabilities(
-  outcomes: Array<{ label: string; probability: number }>,
-  minTemp = 0,
-  maxTemp = 45,
-) {
-  const probs = new Array(maxTemp - minTemp + 1).fill(0);
-  for (const o of outcomes) {
-    const m = o.label.match(/(-?\d+)\s*°C/i);
-    if (!m) continue;
-    const k = Number(m[1]);
-    if (!Number.isFinite(k)) continue;
-    if (k < minTemp || k > maxTemp) continue;
-    probs[k - minTemp] += Math.max(0, o.probability);
-  }
-  const n = normalize(probs);
-  return n.map((p, i) => ({ temp: minTemp + i, probability: p }));
 }
 
 function shanghaiDayRangeUtc(dateKey: string) {
@@ -231,7 +205,7 @@ async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: D
   }
 }
 
-function enforceStrictWeatherSourceGate(
+export function enforceStrictWeatherSourceGate(
   decision: ReturnType<typeof runTradingDecision>,
   weatherRawJson: string | null
 ) {
@@ -308,7 +282,7 @@ function enforceStrictWeatherSourceGate(
   };
 }
 
-function enforceWeatherFreshnessGate(
+export function enforceWeatherFreshnessGate(
   decision: ReturnType<typeof runTradingDecision>,
   weatherRawJson: string | null
 ) {
@@ -347,7 +321,7 @@ function enforceWeatherFreshnessGate(
   };
 }
 
-function enforceDateAlignmentGate(
+export function enforceDateAlignmentGate(
   decision: ReturnType<typeof runTradingDecision>,
   marketTargetDate: Date,
   weatherRawJson: string | null
@@ -403,13 +377,9 @@ export async function refreshMarketData(targetDateKey?: string | null) {
       rawJson: toJsonString({ source: marketRes.source, isClosed: m.isClosed, isActive: m.isActive, endAt: m.targetDate.toISOString() })
     }
   });
-  await prisma.market.updateMany({
-    where: {
-      cityName: 'Shanghai',
-      marketSlug: { not: m.marketSlug }
-    },
-    data: { isActive: false }
-  });
+  // Do not force-close other Shanghai markets locally.
+  // Polymarket may have overlapping tradable markets across adjacent dates,
+  // and forcibly setting others to inactive can create false PASS decisions.
 
   for (const bin of m.bins) {
     await prisma.marketBin.upsert({
@@ -504,6 +474,8 @@ export async function runModelAndDecision(
 
   const weather = market.weatherSnapshots[0];
   if (!weather || !market.bins.length) return null;
+  const marketRawMeta = fromJsonString<{ isActive?: boolean }>(market.rawJson, {});
+  const marketActiveEffective = typeof marketRawMeta.isActive === 'boolean' ? marketRawMeta.isActive : market.isActive;
   const priorBuyCount = await prisma.modelRun.count({
     where: { marketId: market.id, decision: 'BUY' }
   });
@@ -534,6 +506,7 @@ export async function runModelAndDecision(
       sourceHealth?: Record<string, { healthScore?: number; status?: string }>;
       forecastExplain?: {
         outcomeProbabilities?: Array<{ label?: string; probability?: number }>;
+        weightBreakdown?: Array<{ adjusted?: number; weight?: number }>;
       };
     };
   }>(weather.rawJson, {});
@@ -554,8 +527,6 @@ export async function runModelAndDecision(
     | undefined;
   const nowcasting = weatherRaw.raw?.nowcasting;
   const learnedPeakWindow = weatherRaw.raw?.learnedPeakWindow;
-  const fusionOutcomeProbabilities = (weatherRaw.raw?.forecastExplain?.outcomeProbabilities ?? [])
-    .filter((x): x is { label: string; probability: number } => typeof x?.label === 'string' && typeof x?.probability === 'number' && Number.isFinite(x.probability));
   const weatherFreshnessHours = (() => {
     const ts = weatherRaw.raw?.fetchedAtIso ? new Date(weatherRaw.raw.fetchedAtIso).getTime() : NaN;
     if (!Number.isFinite(ts)) return null;
@@ -598,17 +569,11 @@ export async function runModelAndDecision(
     : (weather.windSpeed ?? 0);
   const todayMaxTemp = nowcasting?.todayMaxTemp ?? weather.maxTempSoFar;
   const sourceSpread = sourceDailyMax?.spread;
-  const baseSigma = typeof sourceSpread === 'number' && Number.isFinite(sourceSpread)
-    ? Math.max(0.8, Math.min(2.6, 0.9 + sourceSpread * 0.35))
-    : 1.2;
-  const sigmaByScenario =
-    nowcasting?.scenarioTag === 'stable_sunny'
-      ? baseSigma * 0.9
-      : nowcasting?.scenarioTag === 'suppressed_heating'
-        ? baseSigma * 1.1
-        : baseSigma;
-  const modelSigma = Math.max(0.7, Math.min(2.8, sigmaByScenario));
+  const modelConfig = loadModelConfig();
 
+  // Legacy diagnostic projection only.
+  // IMPORTANT: this output is NOT fed into runProbabilityEngine(mu/sigma).
+  // Production distribution is built by: live adapter (mu/sigma) + constraints (L/U).
   const projectedContinuous = estimateProjectedFinalTemperature({
     currentTemp: modelCurrentTemp,
     maxTempSoFar: isTargetDateToday ? (todayMaxTemp ?? modelCurrentTemp) : modelCurrentTemp,
@@ -630,6 +595,9 @@ export async function runModelAndDecision(
   const nowHourLocal = shanghaiHourNow(new Date());
   const learnedStartHour = Number.isFinite(learnedPeakWindow?.startHour) ? Number(learnedPeakWindow?.startHour) : 13;
   const learnedEndHour = Number.isFinite(learnedPeakWindow?.endHour) ? Number(learnedPeakWindow?.endHour) : 16;
+  // Future 1-6h temps are passed only into computeConstraintBounds
+  // to derive bounding constraints (e.g. maxFutureTemp / upper bound).
+  // They are intentionally excluded from direct mu/sigma shaping.
   const futureTemps = (nowcasting?.futureHours ?? [])
     .slice(0, 6)
     .map((x) => x.temp)
@@ -648,46 +616,54 @@ export async function runModelAndDecision(
   const finalMinAllowedInteger = constraints.minAllowedInteger;
   const maxAllowedInteger = constraints.maxAllowedInteger;
   const beforePeak = isTargetDateToday && nowHourLocal < learnedStartHour;
-  const sigmaBelowMean = beforePeak ? modelSigma * 0.78 : modelSigma;
-  const sigmaAboveMean = beforePeak ? modelSigma * 1.18 : modelSigma;
-  const baselineFromFusion = fusionOutcomeProbabilities.length > 0
-    ? buildIntegerDistributionFromOutcomeProbabilities(fusionOutcomeProbabilities, 0, 45)
-    : null;
-  const fallbackMean = isTargetDateToday
-    ? Math.max(projectedContinuous, todayMaxTemp ?? Number.NEGATIVE_INFINITY)
-    : projectedContinuous;
-  let integerDistribution = baselineFromFusion ?? buildIntegerSettlementDistribution({
-    mean: fallbackMean,
-    sigma: modelSigma,
-    minTemp: 0,
-    maxTemp: 45,
-    minAllowedInteger: finalMinAllowedInteger,
-    maxAllowedInteger,
-    sigmaBelowMean,
-    sigmaAboveMean
+  const useAsymmetricSigma = (process.env.ENABLE_ASYMMETRIC_SIGMA ?? 'false').toLowerCase() === 'true';
+  const distributionMean = isTargetDateToday
+    ? Math.max(fusedContinuous, todayMaxTemp ?? Number.NEGATIVE_INFINITY)
+    : fusedContinuous;
+  const liveAdapted = liveToProbabilityInput({
+    targetDateKey: shanghaiDateKey(market.targetDate),
+    snapshotTime: `${String(nowHourLocal).padStart(2, '0')}:00`,
+    marketBins: market.bins.map((b) => ({
+      label: b.outcomeLabel,
+      marketPrice: b.marketPrice,
+      noMarketPrice: b.noMarketPrice ?? undefined,
+      bestBid: b.bestBid ?? undefined
+    })),
+    sourceDailyMax,
+    observedMaxSoFar: todayMaxTemp,
+    currentTemp: modelCurrentTemp,
+    cloudCover: modelCloudCover,
+    windSpeed: modelWindSpeed,
+    rainProb: modelPrecipProb,
+    constraints: {
+      minContinuous: constraints.minContinuous,
+      maxContinuous: constraints.maxContinuous,
+      minAllowedInteger: finalMinAllowedInteger,
+      maxAllowedInteger
+    },
+    fallbackMean: distributionMean,
+    fallbackSigma: typeof sourceSpread === 'number' && Number.isFinite(sourceSpread)
+      ? Math.max(0.75, Math.min(1.6, 0.78 + sourceSpread * 0.17))
+      : 1.05,
+    modelConfig
   });
-  if (baselineFromFusion) {
-    const pivot = Number.isFinite(fusedAnchor) ? Math.round(fusedAnchor) : Math.round(fallbackMean);
-    const weighted = integerDistribution.map((row) => {
-      if (finalMinAllowedInteger != null && row.temp < finalMinAllowedInteger) return 0;
-      if (maxAllowedInteger != null && row.temp > maxAllowedInteger) return 0;
-      let w = row.probability;
-      if (isTargetDateToday) {
-        if (nowcasting?.scenarioTag === 'suppressed_heating' && row.temp > pivot) {
-          w *= Math.exp(-0.45 * (row.temp - pivot));
-        } else if (beforePeak && row.temp < pivot) {
-          w *= Math.exp(-0.2 * (pivot - row.temp));
-        }
-      }
-      return w;
-    });
-    const normalized = normalize(weighted);
-    integerDistribution = integerDistribution.map((row, i) => ({ ...row, probability: normalized[i] ?? 0 }));
+  // Optional asymmetry toggle remains experimental and applied on top of unified adapter output.
+  if (useAsymmetricSigma && beforePeak) {
+    liveAdapted.engineInput.distribution.sigmaBelowMean = liveAdapted.debug.finalSigma * 0.92;
+    liveAdapted.engineInput.distribution.sigmaAboveMean = liveAdapted.debug.finalSigma * 1.08;
   }
+  const probabilityOutput = runProbabilityEngine({
+    ...liveAdapted.engineInput
+  });
+  const integerDistribution = probabilityOutput.integerDistribution;
+  const distributionDebug = {
+    ...probabilityOutput.debugSummary,
+    liveAdapter: liveAdapted.debug
+  };
   const settlementMean = integerDistribution.reduce((acc, r) => acc + r.temp * r.probability, 0);
-  const probs = mapIntegerDistributionToBins(
-    market.bins.map((b) => b.outcomeLabel),
-    integerDistribution
+  const probs = probabilityOutput.binProbabilities;
+  const probByLabel = new Map(
+    market.bins.map((b, i) => [b.outcomeLabel, probs[i] ?? 0] as const)
   );
   const mostLikelyInteger = pickMostLikelyInteger(integerDistribution);
 
@@ -695,7 +671,7 @@ export async function runModelAndDecision(
     now: new Date(),
     targetDate: market.targetDate,
     marketEndAt: targetDayEndSettlementAt(market.targetDate),
-    marketActive: market.isActive,
+    marketActive: marketActiveEffective,
     observedMaxTemp: todayMaxTemp,
     futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
     futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
@@ -743,7 +719,31 @@ export async function runModelAndDecision(
     ...strictDecision,
     decisionMode: 'realtime' as const,
     isDailyOfficial: false,
-    dailyDateKey: shanghaiDateKey(new Date())
+    dailyDateKey: shanghaiDateKey(new Date()),
+    reasonMeta: {
+      ...(strictDecision as unknown as { reasonMeta?: Record<string, unknown> }).reasonMeta,
+      realtimeDebug: {
+        snapshotTime: liveAdapted.engineInput.snapshotTime,
+        snapshotBucket: liveAdapted.engineInput.snapshotBucket,
+        mu: liveAdapted.debug.mu,
+        sigmaBase: liveAdapted.debug.sigmaBase,
+        spreadSigmaRaw: liveAdapted.debug.spreadSigmaRaw,
+        spreadSigma: liveAdapted.debug.spreadSigma,
+        lambda: liveAdapted.debug.lambda,
+        finalSigma: liveAdapted.debug.finalSigma,
+        configSource: liveAdapted.debug.configSource,
+        sourceWeightFallbackUsed: liveAdapted.debug.sourceWeightFallbackUsed,
+        observedMaxSoFar: todayMaxTemp ?? null,
+        remainingCap: constraints.maxPotentialRise,
+        remainingCapSource: 'heuristic_realtime_v1',
+        maxFutureTemp: constraints.debugSummary.maxFutureTemp ?? null,
+        maxContinuous: constraints.maxContinuous ?? null,
+        finalU: probabilityOutput.debugSummary.U ?? null,
+        p13: probByLabel.get('13°C') ?? null,
+        p14: probByLabel.get('14°C') ?? null,
+        p15: probByLabel.get('15°C') ?? null
+      }
+    }
   };
 
   const modelRun = await prisma.modelRun.create({
@@ -776,7 +776,9 @@ export async function runModelAndDecision(
         fusedAnchor,
         settlementMean,
         mostLikelyInteger,
-        modelSigma,
+        modelSigma: liveAdapted.debug.finalSigma,
+        distributionDebug,
+        realtimeDebug: (finalDecision as unknown as { reasonMeta?: { realtimeDebug?: unknown } }).reasonMeta?.realtimeDebug ?? null,
         sourceCalibration: biasAdjusted?.breakdown ?? [],
         dailyDecision: {
           mode: 'realtime',
@@ -784,7 +786,9 @@ export async function runModelAndDecision(
           dateKey: shanghaiDateKey(new Date()),
           lockAt: null
         },
-        constraints
+        constraints,
+        note:
+          'Calibration/backtest modules remain decoupled from realtime pipeline in v1. This run uses structural truncated-normal constraints only.'
       }),
       outputs: {
         create: finalDecision.binOutputs.map((o) => ({
