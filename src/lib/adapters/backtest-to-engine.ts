@@ -1,11 +1,25 @@
 import type { NormalizedSnapshotRow, SnapshotBucket } from '@/src/lib/backtest/types';
 import type { ProbabilityEngineInputUnified } from '@/src/lib/probability-engine';
 import { resolveModelParamsForBucket, type ModelConfigFile } from '@/src/lib/model-config';
+import {
+  bucketHoursToPeak,
+  bucketObservedVsMuGap
+} from '@/src/lib/trading-engine/delta-distribution';
 
 type AdapterTables = {
   baseSigma?: Record<string, number>;
   sourceWeights?: Record<string, Record<string, number>>;
   remainingCaps?: Record<string, { q90?: number }>;
+  remainingCapDistributions?: Record<string, {
+    q25: number;
+    q50: number;
+    q75: number;
+    q90: number;
+    q95: number;
+    mean: number;
+    std: number;
+    count: number;
+  }>;
 };
 
 function weightedMean(points: Array<{ value: number; weight: number }>): number {
@@ -41,11 +55,22 @@ export function backtestRowToProbabilityInput(params: {
   };
 } {
   const { row, binLabels, modelConfig, calibrationTables } = params;
+  const snapshotHour = Number((row.snapshotTime.split(':')[0] ?? '12'));
+  const peakHour = row.snapshotBucket === 'late' ? 16 : 14.5;
+  const hoursToPeak = peakHour - snapshotHour;
+  const observed = Number.isFinite(row.observedMaxSoFar) ? Number(row.observedMaxSoFar) : undefined;
+  const quickMu = averageSources(row);
+  const observedVsMuGap = observed != null ? Math.abs(observed - quickMu) : 0;
   const resolved = resolveModelParamsForBucket({
     bucket: row.snapshotBucket,
     calibrationTables: calibrationTables ?? undefined,
     modelConfig,
-    defaultLambda: 1.0
+    defaultLambda: 1.0,
+    context: {
+      snapshotBucket: row.snapshotBucket,
+      hoursToPeakBucket: bucketHoursToPeak(hoursToPeak),
+      observedVsMuGapBucket: bucketObservedVsMuGap(observedVsMuGap)
+    }
   });
 
   const bucketWeights = resolved.sourceWeights ?? {};
@@ -70,9 +95,18 @@ export function backtestRowToProbabilityInput(params: {
   const sigmaCalibrated = Math.sqrt(sigmaBase ** 2 + lambda * spreadSigma ** 2);
   const sigmaDynamicFloor = 0.8 + spreadSigma * 0.2;
   const finalSigma = Math.max(0.95, sigmaDynamicFloor, Math.min(3.0, sigmaCalibrated));
-  const L = Number.isFinite(row.observedMaxSoFar) ? row.observedMaxSoFar : undefined;
-  const U = Number.isFinite(row.observedMaxSoFar) && Number.isFinite(resolved.remainingCapQ90)
-    ? (row.observedMaxSoFar as number) + Number(resolved.remainingCapQ90)
+  const L = observed;
+  const U = observed != null && Number.isFinite(resolved.remainingCapQ90)
+    ? observed + Number(resolved.remainingCapQ90)
+    : undefined;
+  const deltaConstraint = observed != null && resolved.remainingCapDistribution
+    ? {
+      observedMax: observed,
+      deltaMean: Math.max(0.01, resolved.remainingCapDistribution.q50),
+      deltaStd: Math.max(0.35, resolved.remainingCapDistribution.std),
+      deltaUpper: Math.max(0.2, resolved.remainingCapDistribution.q95),
+      source: 'distribution' as const
+    }
     : undefined;
 
   const engineInput: ProbabilityEngineInputUnified = {
@@ -98,7 +132,8 @@ export function backtestRowToProbabilityInput(params: {
       minTemp: params.minTemp ?? 0,
       maxTemp: params.maxTemp ?? 45,
       minContinuous: L,
-      maxContinuous: U
+      maxContinuous: U,
+      deltaConstraint
     }
   };
 
@@ -118,3 +153,8 @@ export function backtestRowToProbabilityInput(params: {
   };
 }
 
+function averageSources(row: NormalizedSnapshotRow) {
+  const vals = Object.values(row.sources).filter((v): v is number => Number.isFinite(v));
+  if (!vals.length) return row.currentTemp ?? row.finalMaxTemp;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}

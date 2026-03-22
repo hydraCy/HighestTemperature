@@ -115,8 +115,24 @@ test('late session should use tighter integer ceiling when stricter than general
     windSpeed: 10
   });
   assert.equal(constraints.maxAllowedInteger, 13);
-  assert.ok((constraints.maxContinuous ?? 0) > 13);
-  assert.equal(constraints.debugSummary.continuousUpperSource, 'late_session_tightened');
+  assert.ok((constraints.maxContinuous ?? 0) <= 13);
+  assert.equal(constraints.debugSummary.continuousUpperSource, 'observed_plus_rise_cap');
+});
+
+test('today cap should use calibrated quantile instead of hard early floor', () => {
+  const constraints = computeConstraintBounds({
+    isTargetDateToday: true,
+    nowHourLocal: 9.0,
+    observedMaxTemp: 15,
+    currentTemp: 15,
+    futureTemps1To6h: [16, 16.5, 17],
+    cloudCover: 30,
+    windSpeed: 11,
+    deltaDistribution: { q50: 2.0, q75: 2.5, q90: 3.0, q95: 3.5, mean: 2.0, std: 0.8 }
+  });
+  assert.equal(constraints.debugSummary.deltaQ90, 3.0);
+  assert.equal(constraints.debugSummary.remainingCapSource, 'distribution');
+  assert.equal(constraints.maxPotentialRise, 3.0);
 });
 
 test('extremely narrow continuous interval should concentrate almost all mass in 14C bucket', () => {

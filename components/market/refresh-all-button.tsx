@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button';
 
 export function RefreshAllButton({
   lang = 'zh',
-  targetDateKey
+  targetDateKey,
+  locationKey = 'shanghai'
 }: {
   lang?: 'zh' | 'en';
   targetDateKey?: string;
+  locationKey?: 'shanghai' | 'hongkong';
 }) {
   const [loading, setLoading] = useState(false);
   const text = lang === 'en' ? { loading: 'Refreshing...', idle: 'Refresh Now' } : { loading: '刷新中...', idle: '立即刷新' };
@@ -21,7 +23,10 @@ export function RefreshAllButton({
       onClick={async () => {
         setLoading(true);
         try {
-          const query = targetDateKey ? `?d=${encodeURIComponent(targetDateKey)}` : '';
+          const q = new URLSearchParams();
+          if (targetDateKey) q.set('d', targetDateKey);
+          if (locationKey) q.set('l', locationKey);
+          const query = q.toString() ? `?${q.toString()}` : '';
           await fetch(`/api/refresh${query}`, { method: 'POST' });
           window.location.reload();
         } finally {

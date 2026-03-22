@@ -22,7 +22,7 @@ export type HistoricalCalibration = {
 };
 
 export type ResolutionContext = {
-  cityName: 'Shanghai';
+  cityName: 'Shanghai' | 'Hong Kong';
   resolutionStationName: string;
   resolutionSourceName: string;
   precision: 'integer_celsius';

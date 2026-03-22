@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation';
 
 export function AutoRefreshTrigger({
   intervalMs = 5 * 60 * 1000,
-  targetDateKey
+  targetDateKey,
+  locationKey = 'shanghai'
 }: {
   intervalMs?: number;
   targetDateKey?: string;
+  locationKey?: 'shanghai' | 'hongkong';
 }) {
   const router = useRouter();
 
@@ -16,7 +18,10 @@ export function AutoRefreshTrigger({
     let cancelled = false;
     const runRefresh = async () => {
       try {
-        const query = targetDateKey ? `?d=${encodeURIComponent(targetDateKey)}` : '';
+        const q = new URLSearchParams();
+        if (targetDateKey) q.set('d', targetDateKey);
+        if (locationKey) q.set('l', locationKey);
+        const query = q.toString() ? `?${q.toString()}` : '';
         const resp = await fetch(`/api/refresh${query}`, { method: 'POST' });
         if (!resp.ok) return;
         if (!cancelled) router.refresh();
@@ -31,7 +36,7 @@ export function AutoRefreshTrigger({
       cancelled = true;
       clearInterval(id);
     };
-  }, [intervalMs, router, targetDateKey]);
+  }, [intervalMs, router, targetDateKey, locationKey]);
 
   return null;
 }

@@ -1,5 +1,7 @@
 export type SnapshotTime = '08:00' | '11:00' | '14:00' | '15:30';
 export type SnapshotBucket = '08' | '11' | '14' | 'late';
+export type HoursToPeakBucket = 'far' | 'medium' | 'near' | 'very_near';
+export type ObservedVsMuGapBucket = 'low' | 'medium' | 'high';
 
 export type SnapshotRow = {
   airport: string;
@@ -59,10 +61,24 @@ export type RemainingCapTable = {
   };
 };
 
+export type RemainingCapDistributionStats = {
+  q25: number;
+  q50: number;
+  q75: number;
+  q90: number;
+  q95: number;
+  mean: number;
+  std: number;
+  count: number;
+};
+
+export type RemainingCapDistributionTable = Record<string, RemainingCapDistributionStats>;
+
 export type CalibrationTables = {
   baseSigma: BaseSigmaTable;
   sourceWeights: SourceWeightTable;
   remainingCaps: RemainingCapTable;
+  remainingCapDistributions: RemainingCapDistributionTable;
   meta: {
     bucketSampleCount: Record<SnapshotBucket, number>;
     sourceSampleCount: Record<SnapshotBucket, Partial<Record<WeatherSourceName, number>>>;
@@ -99,6 +115,15 @@ export type CalibrationTables = {
           sampleCount: number;
           rawEstimate: { q50: number; q75: number; q90: number; q95: number };
           smoothedEstimate: { q50: number; q75: number; q90: number; q95: number };
+          usedGlobalFallback: boolean;
+        }
+      >;
+      remainingCapDistributions: Record<
+        string,
+        {
+          sampleCount: number;
+          rawEstimate: RemainingCapDistributionStats;
+          smoothedEstimate: RemainingCapDistributionStats;
           usedGlobalFallback: boolean;
         }
       >;
@@ -192,6 +217,20 @@ export type BacktestResult = {
       passedChecks: number;
       failedChecks: number;
       passRate: number;
+    };
+    capModelComparison?: {
+      legacySingleCap: {
+        brier: number;
+        logloss: number;
+        over90Count: number;
+        p15PositiveCount: number;
+      };
+      distributionCap: {
+        brier: number;
+        logloss: number;
+        over90Count: number;
+        p15PositiveCount: number;
+      };
     };
   };
   trades: BacktestTradeRow[];

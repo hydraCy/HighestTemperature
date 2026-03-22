@@ -11,19 +11,24 @@ export function DecisionCard(props: {
   bestSide: string;
   edge: string;
   modelProb: string;
+  sideProb?: string;
+  valueHint?: string;
   marketPrice: string;
   tradeScore: string;
-  warmingForecast?: string;
   reasonTitle: string;
   fullReason: string;
+  certaintyType?: 'structural' | 'model' | 'mixed' | '-';
+  certaintySummary?: string;
   labels: {
     recBin: string;
     recSide: string;
     edge: string;
     modelProb: string;
+    sideProb: string;
+    valueHint: string;
     marketPx: string;
     tradeScore: string;
-    warmingForecast: string;
+    certainty: string;
   };
 }) {
   const { labels } = props;
@@ -47,9 +52,14 @@ export function DecisionCard(props: {
         </div>
         <div className="grid gap-2 text-sm md:grid-cols-3">
           <p>{labels.modelProb}: {props.modelProb}</p>
+          <p>{labels.sideProb}: {props.sideProb ?? '-'}</p>
           <p>{labels.marketPx}: {props.marketPrice}</p>
           <p>{labels.tradeScore}: {props.tradeScore}</p>
-          <p className="md:col-span-3">{labels.warmingForecast}: {props.warmingForecast ?? '-'}</p>
+          <p className="md:col-span-3 text-xs text-amber-300">{labels.valueHint}: {props.valueHint ?? '-'}</p>
+          <p className="md:col-span-3">
+            {labels.certainty}: {props.certaintyType ?? '-'}
+            {props.certaintySummary ? ` · ${props.certaintySummary}` : ''}
+          </p>
         </div>
         <div className="rounded border border-border/60 p-2 text-xs">
           <p className="mb-1 font-medium">{props.reasonTitle}</p>

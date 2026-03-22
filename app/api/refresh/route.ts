@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-function normalizeDateKey(input: string | null | undefined) {
-  if (!input) return null;
-  return /^\d{4}-\d{2}-\d{2}$/.test(input) ? input : null;
-}
+import { normalizeDateKey } from '@/lib/config/pipeline-request';
+import { normalizeLocationKey } from '@/lib/config/locations';
 
 export async function POST(req: NextRequest) {
   try {
     const targetDateKey = normalizeDateKey(req.nextUrl.searchParams.get('d'));
+    const locationKey = normalizeLocationKey(req.nextUrl.searchParams.get('l'));
     const { syncAllNow } = await import('@/lib/services/refresh-service');
-    const result = await syncAllNow(targetDateKey);
+    const result = await syncAllNow({
+      locationKey,
+      targetDate: targetDateKey
+    });
     return NextResponse.json({ ok: true, decision: result?.decision?.decision ?? null });
   } catch (error) {
     return NextResponse.json(

@@ -192,6 +192,7 @@ export default async function MarketDetailPage({
   const { getMarketDetail } = await import('@/lib/services/query');
   const data = await getMarketDetail(slug);
   if (!data) return notFound();
+  const marketLocationKey = data.market.cityName === 'Hong Kong' ? 'hongkong' : 'shanghai';
   if (!data.isLatestMarket && data.latestMarketSlug) {
     redirect(`/market/${data.latestMarketSlug}?lang=${lang}`);
   }
@@ -202,6 +203,7 @@ export default async function MarketDetailPage({
     .map((w) => ({ time: format(w.observedAt, 'HH:mm'), temp: w.temperature2m }));
 
   const latestRun = data.latestRun;
+  const latestRunFeatures = fromJsonString<Record<string, unknown>>(latestRun?.rawFeaturesJson, {});
   const outputMap = new Map((latestRun?.outputs ?? []).map((o) => [o.outcomeLabel, o]));
   const allBins = data.market.bins.map((b) => {
     const out = outputMap.get(b.outcomeLabel);
@@ -228,8 +230,8 @@ export default async function MarketDetailPage({
   });
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
   const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
-  const reasonMeta = fromJsonString<{ calibratedFusedTemp?: number; mostLikelyInteger?: number }>(latestRun?.rawFeaturesJson, {});
-  const centerTempRaw = reasonMeta.mostLikelyInteger ?? reasonMeta.calibratedFusedTemp;
+  const reasonMeta = latestRunFeatures as { calibratedFusedTemp?: number; mostLikelyInteger?: number; fusedAnchor?: number; fusedContinuous?: number };
+  const centerTempRaw = reasonMeta.fusedAnchor ?? reasonMeta.mostLikelyInteger ?? reasonMeta.calibratedFusedTemp;
   const centerTemp = typeof centerTempRaw === 'number' && Number.isFinite(centerTempRaw)
     ? Math.round(centerTempRaw)
     : null;
@@ -321,12 +323,21 @@ export default async function MarketDetailPage({
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
   const reasonLocalized =
     lang === 'en'
-      ? fromJsonString<{ reasonEn?: string }>(latestRun?.rawFeaturesJson, {}).reasonEn ?? latestRun?.explanation ?? '-'
-      : fromJsonString<{ reasonZh?: string }>(latestRun?.rawFeaturesJson, {}).reasonZh ?? latestRun?.explanation ?? '-';
+      ? (typeof latestRunFeatures.reasonEn === 'string' ? latestRunFeatures.reasonEn : undefined) ?? latestRun?.explanation ?? '-'
+      : (typeof latestRunFeatures.reasonZh === 'string' ? latestRunFeatures.reasonZh : undefined) ?? latestRun?.explanation ?? '-';
+  const explanationSource: 'latestRun' | 'weatherSnapshotFallback' =
+    typeof latestRunFeatures.reasonEn === 'string'
+      || typeof latestRunFeatures.reasonZh === 'string'
+      || typeof latestRun?.explanation === 'string'
+      ? 'latestRun'
+      : 'weatherSnapshotFallback';
 
   return (
     <SiteShell currentPath={`/market/${slug}`} lang={lang}>
-      <AutoRefreshTrigger targetDateKey={format(data.market.targetDate, 'yyyy-MM-dd')} />
+      <AutoRefreshTrigger
+        targetDateKey={format(data.market.targetDate, 'yyyy-MM-dd')}
+        locationKey={marketLocationKey}
+      />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-muted-foreground">{t.pageTag}</p>
@@ -453,10 +464,11 @@ export default async function MarketDetailPage({
             </p>
             <p>{t.decision}: {decisionLabel(latestRun?.decision)}</p>
             <p>{t.recBin}: {latestRun?.bestBin ?? '-'}</p>
-            <p>{t.recSide}: {fromJsonString<{ recommendedSide?: string }>(latestRun?.rawFeaturesJson, {}).recommendedSide ?? '-'}</p>
+            <p>{t.recSide}: {(typeof latestRunFeatures.recommendedSide === 'string' ? latestRunFeatures.recommendedSide : '-')}</p>
             <p>{t.edge}: {latestRun?.edge != null ? latestRun.edge.toFixed(3) : '-'}</p>
             <p>{t.tradeScore}: {latestRun?.tradeScore?.toFixed(2) ?? '-'}</p>
             <p>{t.twd}: {latestRun?.timingScore?.toFixed(0) ?? '-'} / {latestRun?.weatherScore?.toFixed(0) ?? '-'} / {latestRun?.dataQualityScore?.toFixed(0) ?? '-'}</p>
+            <p className="text-xs text-muted-foreground">explanationSource: {explanationSource}</p>
             <div className="flex flex-wrap gap-1">
               {fromJsonString<string[]>(latestRun?.riskFlagsJson, []).map((r) => (
                 <span key={r} className="rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-300">{riskLabel(r, lang)}</span>

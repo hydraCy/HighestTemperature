@@ -1,6 +1,7 @@
 export type ConstraintInput = {
   isTargetDateToday: boolean;
   nowHourLocal: number;
+  snapshotBucket?: '08' | '11' | '14' | 'late';
   learnedPeakWindowStartHour?: number;
   learnedPeakWindowEndHour?: number;
   observedMaxTemp?: number;
@@ -11,6 +12,19 @@ export type ConstraintInput = {
   futureTemps1To6h: number[];
   cloudCover: number;
   windSpeed: number;
+  peakHourLocal?: number;
+  observedVsMuGap?: number;
+  deltaDistribution?: {
+    key?: string;
+    q25?: number;
+    q50?: number;
+    q75?: number;
+    q90?: number;
+    q95?: number;
+    mean?: number;
+    std?: number;
+    count?: number;
+  };
 };
 
 export type ConstraintOutput = {
@@ -28,12 +42,28 @@ export type ConstraintOutput = {
     continuousBoundPriority: string;
     reachabilityFloorAppliedInV1: false;
     maxFutureTemp?: number;
+    hoursToPeak?: number;
+    hoursToPeakBucket?: 'far' | 'medium' | 'near' | 'very_near';
+    observedVsMuGap?: number;
+    observedVsMuGapBucket?: 'low' | 'medium' | 'high';
+    deltaDistributionKey?: string;
+    deltaMean?: number;
+    deltaStd?: number;
+    deltaQ50?: number;
+    deltaQ75?: number;
+    deltaQ90?: number;
+    deltaQ95?: number;
+    remainingCapSource?: 'distribution' | 'distribution_fallback' | 'heuristic_realtime_v1';
+    upperSupportLow?: number;
+    upperSupportHigh?: number;
+    remainingCapFinal?: number;
     riseComponents?: {
       base: number;
       cloudAdj: number;
       windAdj: number;
       timeAdj: number;
       futureAdj: number;
+      distributionAdj?: number;
       total: number;
     };
   };
@@ -89,8 +119,33 @@ export function computeConstraintBounds(input: ConstraintInput): ConstraintOutpu
           ? -0.35
           : 0;
   const futureAdj = Number.isFinite(maxFutureTemp) && maxFutureTemp <= input.currentTemp + 0.3 ? -0.2 : 0;
-  let maxPotentialRise = baseRise + cloudAdj + windAdj + timeAdj + futureAdj;
+  const baseCap = Math.max(0, Math.min(3, baseRise + cloudAdj + windAdj + timeAdj + futureAdj));
+  const delta = input.deltaDistribution;
+  const deltaQ50 = Number.isFinite(delta?.q50) ? Number(delta?.q50) : undefined;
+  const deltaQ75 = Number.isFinite(delta?.q75) ? Number(delta?.q75) : undefined;
+  const deltaQ90 = Number.isFinite(delta?.q90) ? Number(delta?.q90) : undefined;
+  const deltaQ95 = Number.isFinite(delta?.q95) ? Number(delta?.q95) : undefined;
+  const deltaMean = Number.isFinite(delta?.mean) ? Number(delta?.mean) : undefined;
+  const deltaStd = Number.isFinite(delta?.std) ? Number(delta?.std) : undefined;
+  const capFromDistribution = deltaQ90;
+  let maxPotentialRise = capFromDistribution != null
+    ? Math.max(baseCap, capFromDistribution)
+    : baseCap;
   maxPotentialRise = Math.max(0, Math.min(3, maxPotentialRise));
+  const distributionAdj = capFromDistribution != null ? Math.max(0, capFromDistribution - baseCap) : 0;
+
+  const peakHour = Number.isFinite(input.peakHourLocal) ? Number(input.peakHourLocal) : 14.5;
+  const hoursToPeak = peakHour - input.nowHourLocal;
+  const hoursToPeakBucket = hoursToPeak > 6 ? 'far' : hoursToPeak > 3 ? 'medium' : hoursToPeak > 1 ? 'near' : 'very_near';
+  const observedVsMuGap = Number.isFinite(input.observedVsMuGap) ? Number(input.observedVsMuGap) : undefined;
+  const observedVsMuGapBucket =
+    observedVsMuGap == null
+      ? undefined
+      : observedVsMuGap <= 0.8
+        ? 'low'
+        : observedVsMuGap <= 2.0
+          ? 'medium'
+          : 'high';
 
   const peakEnd = Number.isFinite(input.learnedPeakWindowEndHour)
     ? Number(input.learnedPeakWindowEndHour)
@@ -147,12 +202,39 @@ export function computeConstraintBounds(input: ConstraintInput): ConstraintOutpu
         'L from observed max (continuous). U from observed+riseCap; if late-session ceiling is tighter, apply tighter U.',
       reachabilityFloorAppliedInV1: false,
       maxFutureTemp: Number.isFinite(maxFutureTemp) ? maxFutureTemp : undefined,
+      hoursToPeak,
+      hoursToPeakBucket,
+      observedVsMuGap,
+      observedVsMuGapBucket,
+      deltaDistributionKey: delta?.key,
+      deltaMean,
+      deltaStd,
+      deltaQ50,
+      deltaQ75,
+      deltaQ90,
+      deltaQ95,
+      remainingCapSource:
+        capFromDistribution != null
+          ? 'distribution'
+          : delta != null
+            ? 'distribution_fallback'
+            : 'heuristic_realtime_v1',
+      upperSupportLow:
+        observedFloorContinuous != null && deltaQ50 != null
+          ? observedFloorContinuous + deltaQ50
+          : undefined,
+      upperSupportHigh:
+        observedFloorContinuous != null && deltaQ90 != null
+          ? observedFloorContinuous + deltaQ90
+          : undefined,
+      remainingCapFinal: maxPotentialRise,
       riseComponents: {
         base: baseRise,
         cloudAdj,
         windAdj,
         timeAdj,
         futureAdj,
+        distributionAdj: distributionAdj > 0 ? distributionAdj : undefined,
         total: maxPotentialRise
       }
     }

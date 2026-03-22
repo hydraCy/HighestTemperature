@@ -1,7 +1,28 @@
 import { z } from 'zod';
 import { fetchJsonWithCurlFallback, fetchTextWithCurlOnly } from '@/lib/utils/http-json';
 
-const FALLBACK_API_KEY = 'e1f10a1e78da46f5b10a1e78da96f525';
+const FALLBACK_API_KEY = '5c241d89f91274015a577e3e17d43370';
+const SOURCE_DIAGNOSTICS_ENABLED = process.env.SOURCE_DIAGNOSTICS === '1';
+const WU_FUTURE_HOURS_WINDOW = 12;
+
+function maskUrlSecrets(url: string) {
+  return url.replace(/([?&]apiKey=)[^&]+/gi, '$1***');
+}
+
+function classifySourceFailure(message: string) {
+  const m = message.toLowerCase();
+  if (m.includes('401') || m.includes('unauthorized') || m.includes('forbidden')) return 'auth_error';
+  if (m.includes('http ')) return 'http_error';
+  if (m.includes('parse') || m.includes('zod')) return 'parse_error';
+  if (m.includes('no data') || m.includes('empty')) return 'empty_payload';
+  if (m.includes('missing') || m.includes('未配置')) return 'config_missing';
+  return 'http_error';
+}
+
+function sourceDiagLog(source: string, payload: Record<string, unknown>) {
+  if (!SOURCE_DIAGNOSTICS_ENABLED) return;
+  console.info(`[source-diagnostics:${source}] ${JSON.stringify(payload)}`);
+}
 
 const wuCurrentSchema = z.object({
   validTimeLocal: z.string().optional(),
@@ -188,14 +209,31 @@ export async function fetchWundergroundDailyMaxForecast(input: FetchWuDailyForec
   for (const apiKey of keys) {
     try {
       const geocode = `${input.latitude},${input.longitude}`;
-      const raw = await fetchJsonWithCurlFallback(
-        `https://api.weather.com/v3/wx/forecast/daily/5day?geocode=${geocode}&units=m&language=en-US&format=json&apiKey=${apiKey}`,
-        12000
-      );
+      const url = `https://api.weather.com/v3/wx/forecast/daily/5day?geocode=${geocode}&units=m&language=en-US&format=json&apiKey=${apiKey}`;
+      sourceDiagLog('wunderground_daily', {
+        phase: 'request',
+        method: 'GET',
+        url: maskUrlSecrets(url),
+        params: { geocode, units: 'm', language: 'en-US', format: 'json' },
+        headers: { accept: 'application/json', userAgent: 'Mozilla/5.0 (ShanghaiDecisionBot)' }
+      });
+      const raw = await fetchJsonWithCurlFallback(url, 12000);
+      sourceDiagLog('wunderground_daily', {
+        phase: 'response',
+        url: maskUrlSecrets(url),
+        httpStatus: 200,
+        parserKeys: raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>).slice(0, 10) : [],
+        bodyPreview: JSON.stringify(raw).slice(0, 500)
+      });
       const temp = extractDailyForecastMaxTemp(raw, targetKey);
       if (temp != null) return temp;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      sourceDiagLog('wunderground_daily', {
+        phase: 'error',
+        error: lastError.message,
+        failureCategory: classifySourceFailure(lastError.message)
+      });
     }
   }
   if (lastError) {
@@ -216,10 +254,22 @@ export async function fetchWundergroundPeakWindow30d(input: FetchWuDailyForecast
   let lastError: Error | null = null;
   for (const apiKey of keys) {
     try {
-      const raw = await fetchJsonWithCurlFallback(
-        `https://api.weather.com/v1/geocode/${input.latitude}/${input.longitude}/observations/historical.json?apiKey=${apiKey}&units=m&startDate=${ymdStart}&endDate=${ymdEnd}`,
-        12000
-      );
+      const url = `https://api.weather.com/v1/geocode/${input.latitude}/${input.longitude}/observations/historical.json?apiKey=${apiKey}&units=m&startDate=${ymdStart}&endDate=${ymdEnd}`;
+      sourceDiagLog('wunderground_30d', {
+        phase: 'request',
+        method: 'GET',
+        url: maskUrlSecrets(url),
+        params: { units: 'm', startDate: ymdStart, endDate: ymdEnd },
+        headers: { accept: 'application/json', userAgent: 'Mozilla/5.0 (ShanghaiDecisionBot)' }
+      });
+      const raw = await fetchJsonWithCurlFallback(url, 12000);
+      sourceDiagLog('wunderground_30d', {
+        phase: 'response',
+        url: maskUrlSecrets(url),
+        httpStatus: 200,
+        parserKeys: raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>).slice(0, 10) : [],
+        bodyPreview: JSON.stringify(raw).slice(0, 500)
+      });
       const parsed = wuHistoricalSchema.parse(raw);
       const byDay = new Map<string, Array<{ temp: number; hour: number }>>();
       for (const obs of parsed.observations ?? []) {
@@ -255,6 +305,11 @@ export async function fetchWundergroundPeakWindow30d(input: FetchWuDailyForecast
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      sourceDiagLog('wunderground_30d', {
+        phase: 'error',
+        error: lastError.message,
+        failureCategory: classifySourceFailure(lastError.message)
+      });
     }
   }
   if (lastError) {
@@ -274,20 +329,38 @@ export async function fetchWundergroundNowcasting(input: FetchWuNowcastingInput)
   for (const apiKey of keys) {
     try {
       const geocode = `${input.latitude},${input.longitude}`;
+      const currentUrl = `https://api.weather.com/v3/wx/observations/current?geocode=${geocode}&units=m&language=en-US&format=json&apiKey=${apiKey}`;
+      const hourlyUrl = `https://api.weather.com/v3/wx/forecast/hourly/2day?geocode=${geocode}&units=m&language=en-US&format=json&apiKey=${apiKey}`;
+      const historyUrl = `https://api.weather.com/v1/geocode/${input.latitude}/${input.longitude}/observations/historical.json?apiKey=${apiKey}&units=m&startDate=${ymd}&endDate=${ymd}`;
+      sourceDiagLog('wunderground_nowcasting', {
+        phase: 'request',
+        method: 'GET',
+        requests: [
+          { url: maskUrlSecrets(currentUrl), params: { geocode, units: 'm', language: 'en-US', format: 'json' } },
+          { url: maskUrlSecrets(hourlyUrl), params: { geocode, units: 'm', language: 'en-US', format: 'json' } },
+          { url: maskUrlSecrets(historyUrl), params: { units: 'm', startDate: ymd, endDate: ymd } }
+        ],
+        headers: { accept: 'application/json', userAgent: 'Mozilla/5.0 (ShanghaiDecisionBot)' }
+      });
       const [currentRaw, hourlyRaw, historyRaw] = await Promise.all([
-        fetchJsonWithCurlFallback(
-          `https://api.weather.com/v3/wx/observations/current?geocode=${geocode}&units=m&language=en-US&format=json&apiKey=${apiKey}`,
-          12000
-        ),
-        fetchJsonWithCurlFallback(
-          `https://api.weather.com/v3/wx/forecast/hourly/2day?geocode=${geocode}&units=m&language=en-US&format=json&apiKey=${apiKey}`,
-          12000
-        ),
-        fetchJsonWithCurlFallback(
-          `https://api.weather.com/v1/geocode/${input.latitude}/${input.longitude}/observations/historical.json?apiKey=${apiKey}&units=m&startDate=${ymd}&endDate=${ymd}`,
-          12000
-        )
+        fetchJsonWithCurlFallback(currentUrl, 12000),
+        fetchJsonWithCurlFallback(hourlyUrl, 12000),
+        fetchJsonWithCurlFallback(historyUrl, 12000)
       ]);
+      sourceDiagLog('wunderground_nowcasting', {
+        phase: 'response',
+        httpStatus: 200,
+        parserKeys: {
+          current: currentRaw && typeof currentRaw === 'object' ? Object.keys(currentRaw as Record<string, unknown>).slice(0, 10) : [],
+          hourly: hourlyRaw && typeof hourlyRaw === 'object' ? Object.keys(hourlyRaw as Record<string, unknown>).slice(0, 10) : [],
+          history: historyRaw && typeof historyRaw === 'object' ? Object.keys(historyRaw as Record<string, unknown>).slice(0, 10) : []
+        },
+        bodyPreview: {
+          current: JSON.stringify(currentRaw).slice(0, 500),
+          hourly: JSON.stringify(hourlyRaw).slice(0, 500),
+          history: JSON.stringify(historyRaw).slice(0, 500)
+        }
+      });
 
       const current = wuCurrentSchema.parse(currentRaw);
       const hourly = wuHourlySchema.parse(hourlyRaw);
@@ -309,7 +382,7 @@ export async function fetchWundergroundNowcasting(input: FetchWuNowcastingInput)
       const future = hourPoints
         .filter((p) => p.at && p.at.getTime() > nowMs)
         .sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0))
-        .slice(0, 6)
+        .slice(0, WU_FUTURE_HOURS_WINDOW)
         .map((p, i) => ({
           hourOffset: i + 1,
           temp: p.temp,
@@ -346,6 +419,11 @@ export async function fetchWundergroundNowcasting(input: FetchWuNowcastingInput)
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      sourceDiagLog('wunderground_nowcasting', {
+        phase: 'error',
+        error: lastError.message,
+        failureCategory: classifySourceFailure(lastError.message)
+      });
     }
   }
   throw new Error(`Wunderground nowcasting 拉取失败：${lastError?.message ?? 'unknown error'}`);

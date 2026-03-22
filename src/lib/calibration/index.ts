@@ -1,4 +1,5 @@
 import { mad, quantile, rmse } from '@/src/lib/calibration/stats';
+import { buildRemainingCapDistribution } from '@/src/lib/calibration/remainingCapDistribution';
 import type {
   CalibrationConfig,
   CalibrationTables,
@@ -239,10 +240,16 @@ export function runCalibration(
     };
   }
 
+  const remainingCapDistribution = buildRemainingCapDistribution({
+    rows,
+    shrinkageK
+  });
+
   return {
     baseSigma,
     sourceWeights,
     remainingCaps,
+    remainingCapDistributions: remainingCapDistribution.table,
     meta: {
       bucketSampleCount,
       sourceSampleCount,
@@ -252,7 +259,8 @@ export function runCalibration(
       debug: {
         baseSigma: baseSigmaDebug,
         sourceWeights: sourceWeightsDebug,
-        remainingCaps: remainingCapsDebug
+        remainingCaps: remainingCapsDebug,
+        remainingCapDistributions: remainingCapDistribution.debug
       }
     }
   };

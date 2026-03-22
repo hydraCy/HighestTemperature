@@ -1,6 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-type ApiStatusItem = { status?: string; reason?: string; dateLabel?: string };
+type ApiStatusItem = {
+  status?: string;
+  reason?: string;
+  dateLabel?: string;
+  criticality?: 'settlement_critical' | 'supporting';
+  severity?: 'none' | 'high' | 'medium' | 'low';
+};
 
 export function ExpandableDebug(props: {
   title: string;
@@ -8,6 +14,8 @@ export function ExpandableDebug(props: {
   apiDateLabel: string;
   statusLabel: string;
   reasonLabel: string;
+  criticalityLabel?: string;
+  severityLabel?: string;
   apiRows: Array<{ code: string; label: string }>;
   apiStatusMap: Record<string, ApiStatusItem>;
   statusText: (status?: string) => string;
@@ -22,6 +30,8 @@ export function ExpandableDebug(props: {
   detailText: string;
   fusionMethodLabel: string;
   fusionMethod: string;
+  explanationSourceLabel?: string;
+  explanationSource?: 'latestRun' | 'weatherSnapshotFallback';
   resolutionNote: string;
   sourceBiasTitle: string;
   avgBiasLabel: string;
@@ -49,8 +59,14 @@ export function ExpandableDebug(props: {
                 <div key={row.code} className="grid grid-cols-12 gap-2">
                   <p className="col-span-3">{row.label}</p>
                   <p className="col-span-2">{props.statusLabel}: {props.statusText(item?.status)}</p>
-                  <p className="col-span-3 text-muted-foreground">{props.apiDateLabel}: {item?.dateLabel ?? '-'}</p>
-                  <p className="col-span-4 text-muted-foreground">{props.reasonLabel}: {item?.reason ?? '-'}</p>
+                  <p className="col-span-2 text-muted-foreground">{props.apiDateLabel}: {item?.dateLabel ?? '-'}</p>
+                  <p className="col-span-2 text-muted-foreground">
+                    {props.criticalityLabel ?? 'criticality'}: {item?.criticality ?? '-'}
+                  </p>
+                  <p className="col-span-2 text-muted-foreground">
+                    {props.severityLabel ?? 'severity'}: {item?.severity ?? '-'}
+                  </p>
+                  <p className="col-span-3 text-muted-foreground">{props.reasonLabel}: {item?.reason ?? '-'}</p>
                 </div>
               );
             })}
@@ -60,7 +76,7 @@ export function ExpandableDebug(props: {
         <details className="rounded border border-border/60 p-2">
           <summary className="cursor-pointer font-medium">{props.weightTitle}</summary>
           <div className="mt-2">
-            {!props.strictReady || !props.weightBreakdown?.length ? (
+            {!props.weightBreakdown?.length ? (
               <p className="text-muted-foreground">-</p>
             ) : (
               <table className="w-full">
@@ -92,6 +108,11 @@ export function ExpandableDebug(props: {
 
         <details className="rounded border border-border/60 p-2">
           <summary className="cursor-pointer font-medium">{props.detailTitle}</summary>
+          {props.explanationSourceLabel ? (
+            <p className="mt-2 text-muted-foreground">
+              {props.explanationSourceLabel}: {props.explanationSource ?? '-'}
+            </p>
+          ) : null}
           <p className="mt-2 leading-relaxed">{props.detailText || '-'}</p>
           <p className="mt-2 text-muted-foreground">{props.fusionMethodLabel}: {props.fusionMethod || '-'}</p>
           <p className="text-amber-300">{props.resolutionNote}</p>
@@ -115,4 +136,3 @@ export function ExpandableDebug(props: {
     </Card>
   );
 }
-

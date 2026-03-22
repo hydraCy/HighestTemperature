@@ -37,6 +37,8 @@ export function runProbabilityEngine(input: ProbabilityEngineInput): Probability
     maxAllowedInteger: dist.maxAllowedInteger,
     sigmaBelowMean: dist.sigmaBelowMean,
     sigmaAboveMean: dist.sigmaAboveMean
+    ,
+    deltaConstraint: dist.deltaConstraint
   });
 
   const binProbabilities = mapIntegerDistributionToBins(binLabels, integerDistribution);
@@ -62,10 +64,16 @@ export function runProbabilityEngine(input: ProbabilityEngineInput): Probability
       minAllowedInteger: Number.isFinite(dist.minAllowedInteger) ? dist.minAllowedInteger : undefined,
       maxAllowedInteger: Number.isFinite(dist.maxAllowedInteger) ? dist.maxAllowedInteger : undefined,
       inputMode: unifiedMode ? 'unified' : 'legacy',
+      locationKey: unifiedMode ? input.locationKey : undefined,
       targetDate: unifiedMode ? input.targetDate : undefined,
+      isTargetDateToday: unifiedMode ? input.isTargetDateToday : undefined,
+      isFutureDate: unifiedMode ? input.isFutureDate : undefined,
+      dayOffset: unifiedMode ? input.dayOffset : undefined,
       snapshotTime: unifiedMode ? input.snapshotTime : undefined,
       snapshotBucket: unifiedMode ? input.snapshotBucket : undefined,
       calibration: unifiedMode ? input.calibration : undefined
+      ,
+      deltaConstraint: unifiedMode ? input.distribution.deltaConstraint : undefined
     }
   };
 }

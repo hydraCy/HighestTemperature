@@ -16,6 +16,10 @@
     "job:once": "tsx scripts/run-job-once.ts",
     "probability:demo": "tsx scripts/run-probability-engine-demo.ts",
     "backtest:demo": "tsx scripts/run-backtest-demo.ts",
+    "realtime:stability": "tsx scripts/run-realtime-stability.ts",
+    "realtime:stability:diverse": "tsx scripts/run-realtime-stability-diverse.ts",
+    "source:diagnostics": "tsx scripts/run-source-diagnostics.ts",
+    "wu:key:refresh": "tsx scripts/refresh-wu-apikey.ts",
     "compare:openmeteo-wu": "tsx scripts/compare-openmeteo-wunderground.ts",
     "test": "tsx --test tests/*.test.ts",
     "test:core": "tsx --test tests/backtest.test.ts tests/settlement-mapping.test.ts tests/decision-gates.test.ts tests/model-panel.test.ts tests/backtest-calibration.test.ts tests/probability-engine.test.ts"

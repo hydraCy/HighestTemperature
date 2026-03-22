@@ -19,6 +19,7 @@ const HEALTH_SCORE: Record<SourceHealthStatus, number> = {
 
 export function classifySourceKind(sourceName: string): SourceKind {
   const n = sourceName.toLowerCase();
+  // Wunderground / Weather.com belong to settlement-aligned sources.
   if (n.includes('wunderground') || n.includes('weather.com')) return 'settlement';
   if (n.includes('aviation') || n.includes('metar') || n.includes('taf')) return 'observation';
   if (n.includes('wttr')) return 'guidance';
@@ -49,4 +50,3 @@ export function sourceFreshnessScore(forecastAgeHours?: number | null) {
 export function sourceHealthScore(status?: SourceHealthStatus) {
   return HEALTH_SCORE[status ?? 'healthy'];
 }
-

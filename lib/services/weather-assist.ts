@@ -11,14 +11,44 @@ import type { HistoricalCalibration, WeatherSourceInput } from '@/src/lib/fusion
 import { classifySourceKind, type SourceKind } from '@/src/lib/fusion-engine/sourcePolicy';
 import { computeSourceHealth } from '@/lib/services/source-health';
 import { classifyWeatherRegime } from '@/src/lib/trading-engine/regimeClassifier';
+import { getLocationConfig, type SupportedLocationKey } from '@/lib/config/locations';
 
-const RESOLUTION_STATION = {
+type ResolutionStation = {
+  stationName: string;
+  stationCode: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+};
+
+const DEFAULT_RESOLUTION_STATION: ResolutionStation = {
   stationName: 'Shanghai Pudong International Airport Station',
   stationCode: 'ZSPD',
   latitude: 31.1443,
   longitude: 121.8083,
   timezone: 'Asia/Shanghai'
-} as const;
+};
+
+const SOURCE_DIAGNOSTICS_ENABLED = process.env.SOURCE_DIAGNOSTICS === '1';
+
+function maskUrlSecrets(url: string) {
+  return url.replace(/([?&]apiKey=)[^&]+/gi, '$1***');
+}
+
+function classifySourceFailure(message: string) {
+  const m = message.toLowerCase();
+  if (m.includes('401') || m.includes('unauthorized') || m.includes('forbidden')) return 'auth_error';
+  if (m.includes('http ')) return 'http_error';
+  if (m.includes('parse') || m.includes('zod')) return 'parse_error';
+  if (m.includes('no data') || m.includes('无逐小时') || m.includes('sample={}')) return 'empty_payload';
+  if (m.includes('未配置') || m.includes('missing')) return 'config_missing';
+  return 'http_error';
+}
+
+function sourceDiagLog(source: string, payload: Record<string, unknown>) {
+  if (!SOURCE_DIAGNOSTICS_ENABLED) return;
+  console.info(`[source-diagnostics:${source}] ${JSON.stringify(payload)}`);
+}
 
 const nwsHourlySchema = z.object({
   properties: z.object({
@@ -236,11 +266,16 @@ type ParsedTafSegment = {
 
 type WeatherSourceCode = 'wunderground' | 'wunderground_daily' | 'weather_com' | 'wunderground_history' | 'nws_hourly' | 'open_meteo' | 'aviationweather' | 'wttr' | 'met_no' | 'weatherapi' | 'qweather';
 type ApiHealthStatus = 'ok' | 'no_data' | 'fetch_error' | 'parse_error' | 'skipped';
+type ApiSourceCriticality = 'settlement_critical' | 'supporting';
+type ApiIssueSeverity = 'none' | 'high' | 'medium' | 'low';
+type SettlementSourceStatus = 'ok' | 'auth_error' | 'network_error' | 'parse_error' | 'missing';
 type ApiHealth = {
   status: ApiHealthStatus;
   reason?: string;
   hasData: boolean;
   dateLabel?: string;
+  criticality?: ApiSourceCriticality;
+  severity?: ApiIssueSeverity;
 };
 
 function strictSourceListFromEnv(): WeatherSourceCode[] {
@@ -280,12 +315,55 @@ function isNwsHourlyEnabled() {
   return (process.env.ENABLE_NWS_HOURLY ?? 'false').toLowerCase() === 'true';
 }
 
-function formatShanghaiDate(dateLike: Date | string | null | undefined) {
+function isNetworkReason(reason?: string) {
+  if (!reason) return false;
+  const msg = reason.toLowerCase();
+  return msg.includes('enotfound')
+    || msg.includes('econn')
+    || msg.includes('failed to connect')
+    || msg.includes('timeout')
+    || msg.includes('network')
+    || msg.includes('getaddrinfo')
+    || msg.includes('proxy');
+}
+
+function isAuthReason(reason?: string) {
+  if (!reason) return false;
+  const msg = reason.toLowerCase();
+  return msg.includes('http 401') || msg.includes('unauthorized') || msg.includes('forbidden');
+}
+
+function settlementSourceStatusFromHealth(health: ApiHealth | undefined): SettlementSourceStatus {
+  if (!health || health.status === 'skipped' || health.status === 'no_data') return 'missing';
+  if (health.status === 'ok') return 'ok';
+  if (health.status === 'parse_error') return 'parse_error';
+  if (isAuthReason(health.reason)) return 'auth_error';
+  if (isNetworkReason(health.reason)) return 'network_error';
+  return 'missing';
+}
+
+function sourceCriticality(code: WeatherSourceCode): ApiSourceCriticality {
+  // Wunderground is settlement-critical (Polymarket settlement reference).
+  if (code === 'wunderground' || code === 'wunderground_daily' || code === 'wunderground_history') {
+    return 'settlement_critical';
+  }
+  return 'supporting';
+}
+
+function sourceIssueSeverity(health: ApiHealth, criticality: ApiSourceCriticality): ApiIssueSeverity {
+  if (health.status === 'ok') return 'none';
+  if (criticality === 'settlement_critical') return 'high';
+  if (health.status === 'parse_error' || health.status === 'fetch_error') return 'medium';
+  if (health.status === 'no_data' || health.status === 'skipped') return 'low';
+  return 'low';
+}
+
+function formatDateInTz(dateLike: Date | string | null | undefined, timezone: string) {
   if (!dateLike) return null;
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (!Number.isFinite(d.getTime())) return null;
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: RESOLUTION_STATION.timezone,
+    timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -296,12 +374,12 @@ function formatShanghaiDate(dateLike: Date | string | null | undefined) {
   return `${y}-${m}-${day}`;
 }
 
-function formatShanghaiDateTime(dateLike: Date | string | null | undefined) {
+function formatDateTimeInTz(dateLike: Date | string | null | undefined, timezone: string) {
   if (!dateLike) return null;
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (!Number.isFinite(d.getTime())) return null;
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: RESOLUTION_STATION.timezone,
+    timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -317,7 +395,36 @@ function formatShanghaiDateTime(dateLike: Date | string | null | undefined) {
   return `${y}-${m}-${day} ${h}:${mm}`;
 }
 
+export async function fetchWeatherAssistByLocation(
+  locationKey: SupportedLocationKey = 'shanghai',
+  targetDate?: Date,
+  marketId?: string
+): Promise<{ data: WeatherAssist; source: 'api' }> {
+  const cfg = getLocationConfig(locationKey);
+  return fetchWeatherAssistForStation(
+    {
+      stationName: cfg.weather.stationName,
+      stationCode: cfg.weather.stationCode,
+      latitude: cfg.lat,
+      longitude: cfg.lon,
+      timezone: cfg.timezone
+    },
+    locationKey,
+    targetDate,
+    marketId
+  );
+}
+
 export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: string): Promise<{ data: WeatherAssist; source: 'api' }> {
+  return fetchWeatherAssistForStation(DEFAULT_RESOLUTION_STATION, 'shanghai', targetDate, marketId);
+}
+
+async function fetchWeatherAssistForStation(
+  station: ResolutionStation,
+  locationKey: SupportedLocationKey,
+  targetDate?: Date,
+  marketId?: string
+): Promise<{ data: WeatherAssist; source: 'api' }> {
   const weatherApiKey = process.env.WEATHERAPI_KEY?.trim();
   const weatherApiBase = (process.env.WEATHERAPI_API_BASE?.trim() || 'https://api.weatherapi.com/v1').replace(/\/+$/, '');
   const qWeatherApiKey = process.env.QWEATHER_API_KEY?.trim();
@@ -326,42 +433,42 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
   const targetDateResolved = targetDate ?? tomorrowInShanghai();
   const [wuNowcastRes, wuDailyRes, wuHistoryRes, nwsHourlyRes, openMeteoRes, aviationRes, wttrRes, metNoRes, weatherApiRes, qWeatherRes] = await Promise.allSettled([
     fetchWundergroundNowcasting({
-      stationCode: RESOLUTION_STATION.stationCode,
-      latitude: RESOLUTION_STATION.latitude,
-      longitude: RESOLUTION_STATION.longitude,
-      timezone: RESOLUTION_STATION.timezone
+      stationCode: station.stationCode,
+      latitude: station.latitude,
+      longitude: station.longitude,
+      timezone: station.timezone
     }),
     fetchWundergroundDailyMaxForecast({
-      stationCode: RESOLUTION_STATION.stationCode,
-      latitude: RESOLUTION_STATION.latitude,
-      longitude: RESOLUTION_STATION.longitude,
+      stationCode: station.stationCode,
+      latitude: station.latitude,
+      longitude: station.longitude,
       targetDate: targetDateResolved,
-      timezone: RESOLUTION_STATION.timezone
+      timezone: station.timezone
     }),
     fetchWundergroundPeakWindow30d({
-      stationCode: RESOLUTION_STATION.stationCode,
-      latitude: RESOLUTION_STATION.latitude,
-      longitude: RESOLUTION_STATION.longitude,
+      stationCode: station.stationCode,
+      latitude: station.latitude,
+      longitude: station.longitude,
       targetDate: targetDateResolved,
-      timezone: RESOLUTION_STATION.timezone
+      timezone: station.timezone
     }),
-    nwsEnabled ? fetchNwsHourlyJson(12000) : Promise.resolve(null),
+    nwsEnabled ? fetchNwsHourlyJson(station, 12000) : Promise.resolve(null),
     fetchJsonWithCurlFallback(
-      `https://api.open-meteo.com/v1/forecast?latitude=${RESOLUTION_STATION.latitude}&longitude=${RESOLUTION_STATION.longitude}&hourly=temperature_2m,cloud_cover,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,relative_humidity_2m&forecast_days=3&timezone=${encodeURIComponent(RESOLUTION_STATION.timezone)}&models=ecmwf_ifs04`,
+      `https://api.open-meteo.com/v1/forecast?latitude=${station.latitude}&longitude=${station.longitude}&hourly=temperature_2m,cloud_cover,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,relative_humidity_2m&forecast_days=3&timezone=${encodeURIComponent(station.timezone)}&models=ecmwf_ifs04`,
       12000
     ),
-    fetchAviationMetarTaf(12000),
-    fetchWttrJson(12000),
-    fetchJsonWithCurlFallback(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${RESOLUTION_STATION.latitude}&lon=${RESOLUTION_STATION.longitude}`, 12000),
+    fetchAviationMetarTaf(station, 12000),
+    fetchWttrJson(station, getLocationConfig(locationKey).weather.wttrQuery, 12000),
+    fetchJsonWithCurlFallback(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${station.latitude}&lon=${station.longitude}`, 12000),
     weatherApiKey
       ? fetchJsonWithCurlFallback(
-          `${weatherApiBase}/forecast.json?key=${encodeURIComponent(weatherApiKey)}&q=${RESOLUTION_STATION.latitude},${RESOLUTION_STATION.longitude}&days=3&aqi=no&alerts=no`,
+          `${weatherApiBase}/forecast.json?key=${encodeURIComponent(weatherApiKey)}&q=${station.latitude},${station.longitude}&days=3&aqi=no&alerts=no`,
           12000
         )
       : Promise.resolve({ forecast: { forecastday: [] } }),
     qWeatherApiKey
       ? fetchJsonWithCurlFallback(
-          `${qWeatherApiBase}/v7/weather/3d?location=${RESOLUTION_STATION.longitude},${RESOLUTION_STATION.latitude}&key=${encodeURIComponent(qWeatherApiKey)}`,
+          `${qWeatherApiBase}/v7/weather/3d?location=${station.longitude},${station.latitude}&key=${encodeURIComponent(qWeatherApiKey)}`,
           12000
         )
       : Promise.resolve({ daily: [] })
@@ -409,7 +516,13 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
 
   if (wuNowcastRes.status === 'fulfilled') {
     wuNowcasting = wuNowcastRes.value;
-    apiStatus.wunderground = { status: 'ok', hasData: true };
+    const hasWuFutureHours = Array.isArray(wuNowcasting?.futureHours) && wuNowcasting.futureHours.length > 0;
+    apiStatus.wunderground = hasWuFutureHours
+      ? { status: 'ok', hasData: true }
+      : { status: 'no_data', hasData: false, reason: 'Wunderground nowcasting futureHours 为空' };
+    if (!hasWuFutureHours && strictRequiredSources.includes('wunderground')) {
+      errors.push('Wunderground nowcasting futureHours 为空');
+    }
   } else {
     const reason = `Wunderground nowcasting 拉取失败：${wuNowcastRes.reason instanceof Error ? wuNowcastRes.reason.message : String(wuNowcastRes.reason)}`;
     apiStatus.wunderground = { status: 'fetch_error', hasData: false, reason };
@@ -658,7 +771,7 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
   }
 
   const availability: Record<WeatherSourceCode, boolean> = {
-    wunderground: wuNowcasting != null,
+    wunderground: wuNowcasting != null && Array.isArray(wuNowcasting.futureHours) && wuNowcasting.futureHours.length > 0,
     wunderground_daily: wuDailyMax != null,
     weather_com: false,
     wunderground_history: wuPeakWindow != null,
@@ -696,44 +809,58 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
     : missingKinds.map((k) => `kind:${k}` as unknown as WeatherSourceCode);
   const strictReady = missingSources.length === 0;
 
-  const weatherApiDate = weatherApiMeta.matchedDate ?? formatShanghaiDate(weatherApiUpdatedAt);
+  const weatherApiDate = weatherApiMeta.matchedDate ?? formatDateInTz(weatherApiUpdatedAt, station.timezone);
   const sourceDateLabels: Record<WeatherSourceCode, string | null> = {
-    wunderground: formatShanghaiDateTime(wuNowcasting?.observedAt) ?? targetKey,
+    wunderground: formatDateTimeInTz(wuNowcasting?.observedAt, station.timezone) ?? targetKey,
     wunderground_daily: targetKey,
     weather_com: targetKey,
     wunderground_history: `${targetKey} (30d)`,
-    nws_hourly: formatShanghaiDateTime(nwsUpdatedAt) ?? targetKey,
+    nws_hourly: formatDateTimeInTz(nwsUpdatedAt, station.timezone) ?? targetKey,
     open_meteo: targetKey,
-    aviationweather: formatShanghaiDateTime(aviationMetar?.observedAt ?? aviationTaf?.issuedAt) ?? targetKey,
+    aviationweather: formatDateTimeInTz(aviationMetar?.observedAt ?? aviationTaf?.issuedAt, station.timezone) ?? targetKey,
     wttr: targetKey,
     met_no: metNoUpdatedAt
-      ? `${targetKey}（发布 ${formatShanghaiDateTime(metNoUpdatedAt) ?? '-'}）`
+      ? `${targetKey}（发布 ${formatDateTimeInTz(metNoUpdatedAt, station.timezone) ?? '-'}）`
       : targetKey,
     weatherapi: weatherApiDate ?? targetKey,
-    qweather: formatShanghaiDateTime(qWeatherUpdatedAt) ?? targetKey,
+    qweather: formatDateTimeInTz(qWeatherUpdatedAt, station.timezone) ?? targetKey,
   };
   (Object.keys(apiStatus) as WeatherSourceCode[]).forEach((code) => {
+    const criticality = sourceCriticality(code);
     apiStatus[code] = {
       ...apiStatus[code],
       dateLabel: sourceDateLabels[code] ?? targetKey,
+      criticality,
+      severity: sourceIssueSeverity(apiStatus[code], criticality)
     };
   });
+
+  const settlementSourceStatus = settlementSourceStatusFromHealth(apiStatus.wunderground_daily);
+  const hasSettlementSource = settlementSourceStatus === 'ok';
+  const degradedSettlementMode = !hasSettlementSource;
 
   const data = await buildAssistFromTargetDay(openMeteoRows, openMeteoDailyMax, nwsRows, wttrRows, wttrDailyMax, metNoRows, targetKey, {
     targetDate: targetKey,
     mode: 'next_day_forecast',
     resolutionSource: 'Wunderground(ZSPD)',
     resolutionSourceStatus: wuNowcasting ? 'direct' : 'not_direct',
-    stationName: RESOLUTION_STATION.stationName,
-    stationCode: RESOLUTION_STATION.stationCode,
-    stationLat: RESOLUTION_STATION.latitude,
-    stationLon: RESOLUTION_STATION.longitude,
-    stationTimezone: RESOLUTION_STATION.timezone,
+    stationName: station.stationName,
+    stationCode: station.stationCode,
+    stationLat: station.latitude,
+    stationLon: station.longitude,
+    stationTimezone: station.timezone,
     strictRequiredSources,
     strictRequiredKinds,
     strictMode,
     strictReady,
     missingSources,
+    settlementContext: {
+      settlementSource: 'wunderground',
+      settlementCritical: true,
+      hasSettlementSource,
+      settlementSourceStatus,
+      degradedSettlementMode
+    },
     errors,
     apiStatus,
     openMeteo: apiStatus.open_meteo.status === 'ok' ? 'ok' : null,
@@ -746,6 +873,7 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
     weatherapi: weatherApiDailyMax != null ? 'ok' : null,
     qweather: qWeatherDailyMax != null ? 'ok' : null,
     sourceGroups: {
+      settlementCritical: ['wunderground', 'wunderground_daily', 'wunderground_history'],
       free: ['wunderground_daily', 'open_meteo', 'aviationweather', 'wttr', 'met_no'],
       paid: ['weatherapi', 'qweather']
     },
@@ -760,9 +888,9 @@ export async function fetchShanghaiWeatherAssist(targetDate?: Date, marketId?: s
   return { source: 'api', data };
 }
 
-async function fetchNwsHourlyJson(timeoutMs: number) {
-  const lat = RESOLUTION_STATION.latitude;
-  const lon = RESOLUTION_STATION.longitude;
+async function fetchNwsHourlyJson(station: ResolutionStation, timeoutMs: number) {
+  const lat = station.latitude;
+  const lon = station.longitude;
   const pointsUrl = `https://api.weather.gov/points/${lat},${lon}`;
   try {
     const points = await fetchJsonWithCurlFallback(pointsUrl, timeoutMs) as {
@@ -780,7 +908,7 @@ async function fetchNwsHourlyJson(timeoutMs: number) {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (/outside|unavailable|no\s+gridpoint|not\s+found|404/i.test(msg)) {
-      throw new Error(`NWS 仅覆盖美国本土网格，当前站点(${RESOLUTION_STATION.stationCode})不在覆盖范围`);
+      throw new Error(`NWS 仅覆盖美国本土网格，当前站点(${station.stationCode})不在覆盖范围`);
     }
     throw error;
   }
@@ -946,8 +1074,8 @@ function parseTafText(rawText?: string): AviationTafPoint['parsed'] | undefined 
   return { station, validity, segments, next3hRisk };
 }
 
-async function fetchAviationMetarTaf(timeoutMs: number): Promise<{ metar: AviationMetarPoint | null; taf: AviationTafPoint | null }> {
-  const station = RESOLUTION_STATION.stationCode;
+async function fetchAviationMetarTaf(stationConfig: ResolutionStation, timeoutMs: number): Promise<{ metar: AviationMetarPoint | null; taf: AviationTafPoint | null }> {
+  const station = stationConfig.stationCode;
   const base = process.env.AVIATIONWEATHER_API_BASE?.trim() || 'https://aviationweather.gov/api/data';
   const metarUrl = `${base.replace(/\/+$/, '')}/metar?ids=${encodeURIComponent(station)}&format=json`;
   const tafUrl = `${base.replace(/\/+$/, '')}/taf?ids=${encodeURIComponent(station)}&format=json`;
@@ -967,7 +1095,7 @@ async function fetchAviationMetarTaf(timeoutMs: number): Promise<{ metar: Aviati
   return { metar, taf };
 }
 
-async function fetchWttrJson(timeoutMs: number) {
+async function fetchWttrJson(stationConfig: ResolutionStation, cityQuery: string, timeoutMs: number) {
   const unwrapWttrPayload = (payload: unknown) => {
     if (!payload || typeof payload !== 'object') return payload;
     const maybe = payload as { data?: unknown };
@@ -985,33 +1113,77 @@ async function fetchWttrJson(timeoutMs: number) {
     });
   };
   const urls = [
-    `https://wttr.in/${RESOLUTION_STATION.stationCode}?format=j1`,
-    `https://wttr.in/~${RESOLUTION_STATION.latitude},${RESOLUTION_STATION.longitude}?format=j1`,
-    `https://wttr.in/${RESOLUTION_STATION.latitude},${RESOLUTION_STATION.longitude}?format=j1`,
-    'https://wttr.in/Shanghai?format=j1'
+    `https://wttr.in/${stationConfig.stationCode}?format=j1`,
+    `https://wttr.in/~${stationConfig.latitude},${stationConfig.longitude}?format=j1`,
+    `https://wttr.in/${stationConfig.latitude},${stationConfig.longitude}?format=j1`,
+    `https://wttr.in/${encodeURIComponent(cityQuery)}?format=j1`
   ];
   const errors: string[] = [];
   for (const url of urls) {
+    sourceDiagLog('wttr', {
+      phase: 'request',
+      method: 'GET',
+      url: maskUrlSecrets(url),
+      params: { stationCode: stationConfig.stationCode, lat: stationConfig.latitude, lon: stationConfig.longitude, cityQuery },
+      headers: { accept: 'application/json', userAgent: 'Mozilla/5.0 (ShanghaiDecisionBot)' }
+    });
     try {
       const payload = await fetchJsonWithCurlFallback(url, timeoutMs);
       const normalized = unwrapWttrPayload(payload);
       if (hasUsableDaily(normalized)) return normalized;
       const keys = normalized && typeof normalized === 'object' ? Object.keys(normalized as Record<string, unknown>).slice(0, 8).join(',') : typeof normalized;
-      const sample = JSON.stringify(normalized).slice(0, 120);
+      const sample = JSON.stringify(normalized).slice(0, 500);
+      sourceDiagLog('wttr', {
+        phase: 'response',
+        url: maskUrlSecrets(url),
+        httpStatus: 200,
+        parserKeys: keys,
+        bodyPreview: sample,
+        failureCategory: 'empty_payload'
+      });
       errors.push(`${url} -> 返回成功但无逐小时/日最高温数据 keys=[${keys}] sample=${sample}`);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sourceDiagLog('wttr', {
+        phase: 'error',
+        url: maskUrlSecrets(url),
+        error: message,
+        failureCategory: classifySourceFailure(message)
+      });
       errors.push(`${url} -> ${error instanceof Error ? error.message : String(error)}`);
       const suggestion = await parseWttrSuggestedLocation(url, timeoutMs);
       if (suggestion) {
         const suggestedUrl = `https://wttr.in/${suggestion}?format=j1`;
+        sourceDiagLog('wttr', {
+          phase: 'request',
+          method: 'GET',
+          url: maskUrlSecrets(suggestedUrl),
+          params: { suggestion },
+          headers: { accept: 'application/json', userAgent: 'Mozilla/5.0 (ShanghaiDecisionBot)' }
+        });
         try {
           const payload = await fetchJsonWithCurlFallback(suggestedUrl, timeoutMs);
           const normalized = unwrapWttrPayload(payload);
           if (hasUsableDaily(normalized)) return normalized;
           const keys = normalized && typeof normalized === 'object' ? Object.keys(normalized as Record<string, unknown>).slice(0, 8).join(',') : typeof normalized;
-          const sample = JSON.stringify(normalized).slice(0, 120);
+          const sample = JSON.stringify(normalized).slice(0, 500);
+          sourceDiagLog('wttr', {
+            phase: 'response',
+            url: maskUrlSecrets(suggestedUrl),
+            httpStatus: 200,
+            parserKeys: keys,
+            bodyPreview: sample,
+            failureCategory: 'empty_payload'
+          });
           errors.push(`${suggestedUrl} -> 返回成功但无逐小时/日最高温数据 keys=[${keys}] sample=${sample}`);
         } catch (e2) {
+          const message = e2 instanceof Error ? e2.message : String(e2);
+          sourceDiagLog('wttr', {
+            phase: 'error',
+            url: maskUrlSecrets(suggestedUrl),
+            error: message,
+            failureCategory: classifySourceFailure(message)
+          });
           errors.push(`${suggestedUrl} -> ${e2 instanceof Error ? e2.message : String(e2)}`);
         }
       }
@@ -1089,6 +1261,12 @@ async function buildAssistFromTargetDay(
   },
   marketId?: string
 ): Promise<WeatherAssist> {
+  const stationCode = typeof rawMeta.stationCode === 'string' ? rawMeta.stationCode : 'ZSPD';
+  const stationName =
+    typeof rawMeta.stationName === 'string'
+      ? rawMeta.stationName
+      : 'Shanghai Pudong International Airport Station';
+  const resolutionCityName = stationCode === 'VHHH' ? 'Hong Kong' : 'Shanghai';
   const openMeteoTarget = filterByDateKey(openMeteoRows, targetDateKey);
   const nwsTarget = filterByDateKey(nwsRows, targetDateKey);
   const wttrTarget = filterByDateKey(wttrRows, targetDateKey);
@@ -1235,8 +1413,8 @@ async function buildAssistFromTargetDay(
           sources: fusionSources,
           calibrations,
           resolutionContext: {
-            cityName: 'Shanghai',
-            resolutionStationName: RESOLUTION_STATION.stationName,
+            cityName: resolutionCityName,
+            resolutionStationName: stationName,
             resolutionSourceName: 'Wunderground',
             precision: 'integer_celsius'
           },
@@ -1289,6 +1467,20 @@ async function buildAssistFromTargetDay(
     `WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C`,
     `QWeather ${qWeatherDailyMaxInt ?? '-'}°C`
   ].filter((x): x is string => Boolean(x)).join(' / ');
+
+  const settlementContext = (rawMeta as {
+    settlementContext?: {
+      hasSettlementSource?: boolean;
+      degradedSettlementMode?: boolean;
+    };
+  }).settlementContext;
+  const degradedSettlementMode = Boolean(settlementContext?.degradedSettlementMode);
+  const degradedNoteZh = degradedSettlementMode
+    ? '主结算源 Wunderground 当前不可用，已进入代理预测模式（degraded settlement mode）；以下为辅助源代理估计，不等于直接观测 WU。'
+    : '';
+  const degradedNoteEn = degradedSettlementMode
+    ? 'Wunderground settlement-critical source is unavailable; running in degraded settlement mode. Outputs below are supporting-source proxy estimates, not direct WU observations.'
+    : '';
 
   return {
     observedAt: nowcasting.observedAt,
@@ -1378,11 +1570,11 @@ async function buildAssistFromTargetDay(
             }))
           : [],
         zh: fusionOutput
-          ? `目标日最高温采用加权融合：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。${fusionOutput.explanation}`
-          : `目标日最高温由多源日高温预测融合得到：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。`,
+          ? `目标日最高温采用加权融合：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。${fusionOutput.explanation}${degradedNoteZh ? ` ${degradedNoteZh}` : ''}`
+          : `目标日最高温由多源日高温预测融合得到：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。${degradedNoteZh}`,
         en: fusionOutput
-          ? `Target-day max temperature uses weighted fusion: ${enSourceList}, fused continuous value ${dailyMaxContinuous}°C and settlement anchor ${dailyMaxAnchor}°C. Cross-source spread ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence ${confidence}. ${fusionOutput.explanation}`
-          : `Target-day max temperature is fused from multiple source daily highs: ${enSourceList}. Continuous fused value is ${dailyMaxContinuous}°C with settlement anchor ${dailyMaxAnchor}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}.`
+          ? `Target-day max temperature uses weighted fusion: ${enSourceList}, fused continuous value ${dailyMaxContinuous}°C and settlement anchor ${dailyMaxAnchor}°C. Cross-source spread ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence ${confidence}. ${fusionOutput.explanation}${degradedNoteEn ? ` ${degradedNoteEn}` : ''}`
+          : `Target-day max temperature is fused from multiple source daily highs: ${enSourceList}. Continuous fused value is ${dailyMaxContinuous}°C with settlement anchor ${dailyMaxAnchor}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}. ${degradedNoteEn}`
       }
     }
   };
@@ -1830,30 +2022,18 @@ function buildNowcastingContext(
     ? Math.max(0, Math.min(100, current.rainProb))
     : (current.precip > 0 ? 55 : 10);
 
-  const fallbackFuture = [1, 2, 3, 4, 5, 6].map((offset) => {
-    const row = pickHour(timeline, nowHour + offset) ?? current;
-    const pProb = row.rainProb != null && Number.isFinite(row.rainProb)
-      ? Math.max(0, Math.min(100, row.rainProb))
-      : (row.precip > 0 ? 55 : 10);
-    return {
-      hourOffset: offset,
-      temp: row.temp,
-      cloudCover: row.cloud,
-      precipitationProb: pProb,
-      windSpeed: row.wind,
-      windDirection: row.windDirection ?? null
-    };
-  });
-
   const precipitationProb = wuNowcasting?.precipitationProb ?? fallbackPrecipitationProb;
-  const future = (wuNowcasting?.futureHours?.length ? wuNowcasting.futureHours.slice(0, 6).map((x) => ({
+  // v1 policy:
+  // Future 1-6h trajectory is settlement-critical and must come from Wunderground nowcasting.
+  // If WU futureHours is unavailable, do not fallback to merged auxiliary sources.
+  const future = (wuNowcasting?.futureHours?.length ? wuNowcasting.futureHours.slice(0, 12).map((x) => ({
     hourOffset: x.hourOffset,
     temp: x.temp ?? current.temp,
     cloudCover: x.cloudCover ?? current.cloud,
     precipitationProb: x.precipitationProb ?? precipitationProb,
     windSpeed: x.windSpeed ?? current.wind,
     windDirection: x.windDirection ?? current.windDirection ?? null
-  })) : fallbackFuture);
+  })) : []);
 
   const currentTemp = wuNowcasting?.currentTemp ?? aviationMetar?.tempC ?? current.temp;
   const todayMaxTemp = wuNowcasting?.todayMaxTemp ?? (upToNow.length ? Math.max(...upToNow.map((r) => r.temp)) : currentTemp);

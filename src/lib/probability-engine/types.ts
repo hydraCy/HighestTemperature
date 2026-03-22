@@ -18,7 +18,11 @@ export type ProbabilityEngineMarketBin = {
 };
 
 export type ProbabilityEngineInputUnified = {
+  locationKey?: 'shanghai' | 'hongkong';
   targetDate: string;
+  isTargetDateToday?: boolean;
+  isFutureDate?: boolean;
+  dayOffset?: number;
   snapshotTime: string;
   snapshotBucket: '08' | '11' | '14' | 'late';
   sources?: Partial<Record<EngineWeatherSourceName, number>>;
@@ -45,6 +49,13 @@ export type ProbabilityEngineInputUnified = {
     maxAllowedInteger?: number;
     sigmaBelowMean?: number;
     sigmaAboveMean?: number;
+    deltaConstraint?: {
+      observedMax: number;
+      deltaMean: number;
+      deltaStd: number;
+      deltaUpper: number;
+      source?: 'distribution' | 'distribution_fallback' | 'none';
+    };
   };
 };
 
@@ -78,7 +89,11 @@ export type ProbabilityEngineOutput = {
     minAllowedInteger?: number;
     maxAllowedInteger?: number;
     inputMode: 'unified' | 'legacy';
+    locationKey?: 'shanghai' | 'hongkong';
     targetDate?: string;
+    isTargetDateToday?: boolean;
+    isFutureDate?: boolean;
+    dayOffset?: number;
     snapshotTime?: string;
     snapshotBucket?: '08' | '11' | '14' | 'late';
     calibration?: {
@@ -86,6 +101,13 @@ export type ProbabilityEngineOutput = {
       baseSigma?: number;
       spreadSigma?: number;
       source?: 'calibration' | 'model_config' | 'default';
+    };
+    deltaConstraint?: {
+      observedMax?: number;
+      deltaMean?: number;
+      deltaStd?: number;
+      deltaUpper?: number;
+      source?: 'distribution' | 'distribution_fallback' | 'none';
     };
   };
 };

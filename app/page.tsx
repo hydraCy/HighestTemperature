@@ -1,12 +1,13 @@
 export const dynamic = 'force-dynamic';
 
-import Link from 'next/link';
 import { format } from 'date-fns';
 import { SiteShell } from '@/components/layout/site-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshAllButton } from '@/components/market/refresh-all-button';
 import { LiveMarketPoller } from '@/components/market/live-market-poller';
 import { AutoRefreshTrigger } from '@/components/market/auto-refresh-trigger';
+import { LocationSelector } from '@/components/market/location-selector';
+import { DateSelector } from '@/components/market/date-selector';
 import { DecisionCard } from '@/components/decision/decision-card';
 import { ProbabilitySection } from '@/components/decision/probability-section';
 import { MarketComparison } from '@/components/decision/market-comparison';
@@ -18,15 +19,17 @@ import { riskLabel } from '@/lib/i18n/risk-labels';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
 import { buildFocusBins } from '@/lib/utils/focus-bins';
 import { formatDateByMode, formatDateTimeByMode } from '@/lib/utils/time-display';
+import type { CertaintySummary } from '@/src/lib/explainability/types';
 import { calculatePositionSize } from '@/src/lib/trading-engine/positionSizer';
 import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
+import { getLocationConfig, normalizeLocationKey } from '@/lib/config/locations';
 
-type PageSearchParams = Promise<{ lang?: string | string[]; d?: string | string[] }>;
+type PageSearchParams = Promise<{ lang?: string | string[]; d?: string | string[]; l?: string | string[] }>;
 
 export default async function HomePage({ searchParams }: { searchParams: PageSearchParams }) {
-  const toShanghaiDateKey = (date: Date) => {
+  const toDateKeyAtTimezone = (date: Date, timezone: string) => {
     const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Shanghai',
+      timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit'
@@ -38,10 +41,12 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   };
   const sp = await searchParams;
   const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
+  const locationKey = normalizeLocationKey(Array.isArray(sp?.l) ? sp.l[0] : sp?.l);
+  const locationConfig = getLocationConfig(locationKey);
   const selectedDate = Array.isArray(sp?.d) ? sp.d[0] : sp?.d;
   const selectedDateKey = typeof selectedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
     ? selectedDate
-    : toShanghaiDateKey(new Date());
+    : toDateKeyAtTimezone(new Date(), locationConfig.timezone);
   const t =
     lang === 'en'
       ? {
@@ -179,6 +184,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           rank: 'Rank',
           side: 'Side',
           modelProb: 'Model Prob',
+          sideProb: 'Selected Side Prob',
+          valueHint: 'Trading Value',
           marketPx: 'Market Px',
           grossEdge: 'Gross EV',
           netEdge: 'Net EV',
@@ -364,6 +371,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           rank: '排名',
           side: '方向',
           modelProb: '模型概率',
+          sideProb: '方向概率',
+          valueHint: '交易价值',
           marketPx: '市场价格',
           grossEdge: '毛EV',
           netEdge: '净EV',
@@ -415,11 +424,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           unknown: '未知'
         };
   const { getDashboardData } = await import('@/lib/services/query');
-  const data = await getDashboardData(selectedDateKey);
+  const data = await getDashboardData(selectedDateKey, locationKey);
   if (!data) {
     return (
       <SiteShell currentPath="/" lang={lang}>
-        <AutoRefreshTrigger targetDateKey={selectedDateKey} />
+        <AutoRefreshTrigger targetDateKey={selectedDateKey} locationKey={locationKey} />
         <Card>
           <CardHeader>
             <CardTitle>{lang === 'en' ? 'No Data Yet' : '暂无数据'}</CardTitle>
@@ -438,13 +447,33 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const decisionLabel = (d?: string) => (d === 'BUY' ? t.buy : d === 'WATCH' ? t.watch : t.pass);
   const weatherParsed = parseWeatherRaw(data?.latestWeather?.rawJson);
   const weatherRaw = weatherParsed.raw;
+  const latestRunFeatures = fromJsonString<Record<string, unknown>>(data?.latestRun?.rawFeaturesJson, {});
   const weatherErrors = (weatherRaw.errors as string[] | undefined) ?? [];
   const strictReadyRaw = (weatherRaw as { strictReady?: boolean } | undefined)?.strictReady ?? false;
   const missingSources = (weatherRaw as { missingSources?: string[] } | undefined)?.missingSources ?? [];
   const sourceDailyMax = (weatherRaw as { sourceDailyMax?: { wundergroundDaily?: number | null; nwsHourly?: number | null; openMeteo?: number | null; wttr?: number | null; metNo?: number | null; weatherApi?: number | null; qWeather?: number | null; cmaChina?: number | null; fused?: number | null; fusedContinuous?: number | null; fusedAnchor?: number | null; spread?: number | null } } | undefined)?.sourceDailyMax;
   const apiStatusMap = (weatherRaw as {
-    apiStatus?: Record<string, { status: string; reason?: string; hasData?: boolean; dateLabel?: string }>;
+    apiStatus?: Record<
+      string,
+      {
+        status: string;
+        reason?: string;
+        hasData?: boolean;
+        dateLabel?: string;
+        criticality?: 'settlement_critical' | 'supporting';
+        severity?: 'none' | 'high' | 'medium' | 'low';
+      }
+    >;
   } | undefined)?.apiStatus ?? {};
+  const settlementContext = (weatherRaw as {
+    settlementContext?: {
+      settlementSource?: string;
+      settlementCritical?: boolean;
+      hasSettlementSource?: boolean;
+      settlementSourceStatus?: 'ok' | 'auth_error' | 'network_error' | 'parse_error' | 'missing';
+      degradedSettlementMode?: boolean;
+    };
+  } | undefined)?.settlementContext;
   const nowcasting = (weatherRaw as {
     nowcasting?: {
       currentTemp?: number;
@@ -490,19 +519,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     return Math.max(0, Math.round((Date.now() - ts) / 60000));
   })();
   const isTargetDateToday = data?.market?.targetDate
-    ? toShanghaiDateKey(new Date(data.market.targetDate)) === toShanghaiDateKey(new Date())
+    ? toDateKeyAtTimezone(new Date(data.market.targetDate), locationConfig.timezone) === toDateKeyAtTimezone(new Date(), locationConfig.timezone)
     : false;
-  const shanghaiTodayKey = toShanghaiDateKey(new Date());
+  const shanghaiTodayKey = toDateKeyAtTimezone(new Date(), locationConfig.timezone);
+  const shanghaiTomorrowKey = toDateKeyAtTimezone(new Date(Date.now() + 24 * 3600 * 1000), locationConfig.timezone);
   const pageDateKey = selectedDateKey;
-  const selectedDayDate = new Date(`${pageDateKey}T00:00:00+08:00`);
-  const prevDay = new Date(selectedDayDate);
-  prevDay.setDate(prevDay.getDate() - 1);
-  const nextDay = new Date(selectedDayDate);
-  nextDay.setDate(nextDay.getDate() + 1);
-  const prevDayKey = toShanghaiDateKey(prevDay);
-  const nextDayKey = toShanghaiDateKey(nextDay);
   const riskSet = new Set(data?.latestDecision?.riskFlags ?? []);
-  const marketTargetDateKey = data?.market?.targetDate ? toShanghaiDateKey(new Date(data.market.targetDate)) : null;
+  const marketTargetDateKey = data?.market?.targetDate ? toDateKeyAtTimezone(new Date(data.market.targetDate), locationConfig.timezone) : null;
   const isDateAligned = !marketTargetDateKey || !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
   const selectedSettlementLabel = `${pageDateKey} 24:00`;
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
@@ -522,7 +545,44 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     mostLikelyInteger?: number;
     settlementMean?: number;
     sourceCalibration?: Array<{ code: string; raw: number; bias: number; mae: number; adjusted: number; weight: number; sampleSize: number }>;
+    certaintySummary?: CertaintySummary;
+    reasonMeta?: {
+      certaintySummary?: CertaintySummary;
+    };
   };
+  const runFusedAnchor =
+    typeof latestRunFeatures.fusedAnchor === 'number' && Number.isFinite(latestRunFeatures.fusedAnchor)
+      ? Number(latestRunFeatures.fusedAnchor)
+      : (typeof latestRunFeatures.calibratedFusedTemp === 'number' && Number.isFinite(latestRunFeatures.calibratedFusedTemp)
+          ? Number(latestRunFeatures.calibratedFusedTemp)
+          : null);
+  const runFusedContinuous =
+    typeof latestRunFeatures.fusedContinuous === 'number' && Number.isFinite(latestRunFeatures.fusedContinuous)
+      ? Number(latestRunFeatures.fusedContinuous)
+      : null;
+  const runWeightBreakdown = Array.isArray(latestRunFeatures.sourceCalibration)
+    ? (latestRunFeatures.sourceCalibration as Array<{
+        code?: string;
+        raw?: number;
+        adjusted?: number;
+        weight?: number;
+      }>)
+      .filter((x) =>
+        typeof x?.code === 'string'
+        && typeof x?.raw === 'number'
+        && Number.isFinite(x.raw)
+        && typeof x?.adjusted === 'number'
+        && Number.isFinite(x.adjusted)
+        && typeof x?.weight === 'number'
+        && Number.isFinite(x.weight)
+      )
+      .map((x) => ({
+        source: String(x.code),
+        raw: Number(x.raw),
+        adjusted: Number(x.adjusted),
+        weight: Number(x.weight)
+      }))
+    : [];
   const decisionForecastInteger =
     typeof decisionMeta.mostLikelyInteger === 'number' && Number.isFinite(decisionMeta.mostLikelyInteger)
       ? Math.round(decisionMeta.mostLikelyInteger)
@@ -531,16 +591,28 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     typeof decisionMeta.settlementMean === 'number' && Number.isFinite(decisionMeta.settlementMean)
       ? decisionMeta.settlementMean
       : null;
+  // CertaintySummary is explainability-only output from pipeline v1 contract.
+  // Page may display summaryZh/summaryEn/certaintyType, but must not use it
+  // to reverse-control model output or trading-rule decisions.
+  // Keep a minimal legacy fallback for historical snapshots that may still store
+  // certaintySummary at top-level decisionMeta. Primary v1 contract path is:
+  // decisionMeta.reasonMeta.certaintySummary
+  const certaintySummaryObj = decisionMeta.reasonMeta?.certaintySummary ?? decisionMeta.certaintySummary;
+  const certaintyType = certaintySummaryObj?.certaintyType ?? '-';
+  const certaintySummaryText =
+    lang === 'en'
+      ? (certaintySummaryObj?.summaryEn ?? '')
+      : (certaintySummaryObj?.summaryZh ?? '');
   const hasLatestDecision = Boolean(data?.latestDecision);
   const panelForecastInteger =
     hasLatestDecision
-      ? decisionForecastInteger
+      ? (runFusedAnchor != null ? Math.round(runFusedAnchor) : decisionForecastInteger)
       : (typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
           ? Math.round(sourceDailyMax.fusedAnchor)
           : null);
   const panelForecastContinuous =
     hasLatestDecision
-      ? decisionForecastContinuous
+      ? (runFusedContinuous != null ? runFusedContinuous : decisionForecastContinuous)
       : (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
           ? sourceDailyMax.fusedContinuous
           : null);
@@ -594,19 +666,25 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const tradingCost = Number(process.env.TRADING_COST_PER_TRADE ?? '0.01');
   const skipNearCertainPrice = Number(process.env.SKIP_NEAR_CERTAIN_PRICE ?? '0.95');
   const settlementAnchorTemp =
-    typeof decisionMeta.mostLikelyInteger === 'number' && Number.isFinite(decisionMeta.mostLikelyInteger)
-      ? Math.round(decisionMeta.mostLikelyInteger)
-      : (typeof panelForecastInteger === 'number' && Number.isFinite(panelForecastInteger) ? Math.round(panelForecastInteger) : null);
+    runFusedAnchor != null
+      ? Math.round(runFusedAnchor)
+      : (typeof decisionMeta.mostLikelyInteger === 'number' && Number.isFinite(decisionMeta.mostLikelyInteger)
+          ? Math.round(decisionMeta.mostLikelyInteger)
+          : (typeof panelForecastInteger === 'number' && Number.isFinite(panelForecastInteger) ? Math.round(panelForecastInteger) : null));
   const fusedAnchorTemp =
-    typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
-      ? Math.round(sourceDailyMax.fusedAnchor)
-      : null;
-  const muTempRaw =
-    typeof decisionMeta.settlementMean === 'number' && Number.isFinite(decisionMeta.settlementMean)
-      ? decisionMeta.settlementMean
-      : (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
-          ? sourceDailyMax.fusedContinuous
+    runFusedAnchor != null
+      ? Math.round(runFusedAnchor)
+      : (typeof sourceDailyMax?.fusedAnchor === 'number' && Number.isFinite(sourceDailyMax.fusedAnchor)
+          ? Math.round(sourceDailyMax.fusedAnchor)
           : null);
+  const muTempRaw =
+    runFusedContinuous != null
+      ? runFusedContinuous
+      : (typeof decisionMeta.settlementMean === 'number' && Number.isFinite(decisionMeta.settlementMean)
+          ? decisionMeta.settlementMean
+          : (typeof sourceDailyMax?.fusedContinuous === 'number' && Number.isFinite(sourceDailyMax.fusedContinuous)
+              ? sourceDailyMax.fusedContinuous
+              : null));
   const centerTemp =
     settlementAnchorTemp
       ?? fusedAnchorTemp
@@ -733,6 +811,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const recBin = data?.latestDecision?.recommendedBin;
   const recSide = data?.latestDecision?.recommendedSide;
   const recRow = allBinsWithGlobalSide.find((b) => b.label === recBin);
+  const recModelYesProb = recRow?.modelProbability ?? 0;
+  const recModelNoProb = recRow?.modelNoProbability ?? 0;
+  const recSelectedSideProb = recSide === 'NO' ? recModelNoProb : recModelYesProb;
+  const recSelectedMarketPrice = recSide === 'NO' ? (recRow?.noMarketPrice ?? null) : (recRow?.marketPrice ?? null);
   const stakeBase = 1000;
   const sideProb = recRow
     ? (recSide === 'NO' ? recRow.modelNoProbability : recRow.modelProbability)
@@ -763,8 +845,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
   const minutesToSettlement = data?.marketStatus?.minutesToSettlement ?? null;
   const nearSettlement = typeof minutesToSettlement === 'number' && minutesToSettlement <= 180;
   const futureCapped =
-    (nowcasting?.futureHours ?? []).slice(0, 6).length > 0 &&
-    (nowcasting?.futureHours ?? []).slice(0, 6).every((h) => h.temp <= (nowcasting?.todayMaxTemp ?? Number.POSITIVE_INFINITY) + 0.2);
+    (nowcasting?.futureHours ?? []).slice(0, 12).length > 0 &&
+    (nowcasting?.futureHours ?? []).slice(0, 12).every((h) => h.temp <= (nowcasting?.todayMaxTemp ?? Number.POSITIVE_INFINITY) + 0.2);
   const stalledRise = (nowcasting?.tempRise1h ?? 0) <= 0;
   const lockLikely = Boolean(
     data?.marketStatus?.isSettled ||
@@ -781,15 +863,58 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         : (lang === 'en' ? 'Reason: unknown' : '原因：未知');
   const decisionMain = data?.latestDecision;
   const decisionReasonRaw = (lang === 'en' ? decisionMain?.reasonEn : decisionMain?.reasonZh) ?? decisionMain?.reason ?? '';
-  const warmingForecastPeak = (() => {
-    const vals = [
-      nowcasting?.currentTemp,
-      nowcasting?.todayMaxTemp,
-      ...(nowcasting?.futureHours ?? []).slice(0, 6).map((h) => h.temp)
-    ].filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
-    if (!vals.length) return null;
-    return Math.max(...vals);
+  const futureTempsFromNowcasting = (nowcasting?.futureHours ?? [])
+    .slice(0, 12)
+    .map((h) => h.temp)
+    .filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  const futureTempsFromRun = [
+    latestRunFeatures.futureTemp1h,
+    latestRunFeatures.futureTemp2h,
+    latestRunFeatures.futureTemp3h,
+    latestRunFeatures.futureTemp4h,
+    latestRunFeatures.futureTemp5h,
+    latestRunFeatures.futureTemp6h,
+    latestRunFeatures.futureTemp7h,
+    latestRunFeatures.futureTemp8h,
+    latestRunFeatures.futureTemp9h,
+    latestRunFeatures.futureTemp10h,
+    latestRunFeatures.futureTemp11h,
+    latestRunFeatures.futureTemp12h
+  ].filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  // Short-term trajectory must be a single 1-12h sequence.
+  // Prefer realtime nowcasting; fallback to latest run features only when nowcasting is unavailable.
+  // Never concatenate both arrays (would duplicate horizon values).
+  const shortTermFutureTemps = futureTempsFromNowcasting.length > 0
+    ? futureTempsFromNowcasting
+    : futureTempsFromRun;
+  const shortTermTrackText = shortTermFutureTemps.length
+    ? shortTermFutureTemps.map((v, i) => `${i + 1}h:${v.toFixed(1)}°C`).join(' / ')
+    : undefined;
+  const tradingValueHint = (() => {
+    if (!decisionMain) return '-';
+    if (decisionMain.decision === 'PASS') {
+      return lang === 'en'
+        ? 'PASS state: direction probability does not equal tradable value.'
+        : '当前为 PASS：方向概率不等于可交易价值。';
+    }
+    if (typeof recSelectedMarketPrice === 'number' && recSelectedMarketPrice >= 0.95) {
+      return lang === 'en'
+        ? 'This side is already heavily priced in; marginal value is low.'
+        : '该方向已高度计价，边际较低。';
+    }
+    const edge = decisionMain.edge ?? 0;
+    if (edge <= 0.02) {
+      return lang === 'en'
+        ? 'Edge is thin; include costs/slippage before trading.'
+        : '净 Edge 较薄，需计入成本与滑点。';
+    }
+    return lang === 'en'
+      ? 'Direction probability and pricing are both usable.'
+      : '方向概率与价格关系可用于交易判断。';
   })();
+  const shortTermTrackNote = lang === 'en'
+    ? 'Short-term trajectory for next 1-12h only; not the full-day settlement max forecast.'
+    : '仅表示未来 1~12 小时温度变化轨迹，不代表全天最高温结算预测。';
   const probabilityRows = focusRows;
   const compareRows = [...focusRows]
     .sort((a, b) => b.constrainedEv - a.constrainedEv)
@@ -806,45 +931,52 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     `${t.currentTemp}: ${nowcasting?.currentTemp != null ? `${nowcasting.currentTemp.toFixed(1)}°C` : '-'}`,
     `${t.todayObservedMax}: ${isTargetDateToday && nowcasting?.todayMaxTemp != null ? `${nowcasting.todayMaxTemp.toFixed(0)}°C` : '-'}`,
     `${lang === 'en' ? 'Remaining cap' : '剩余上限'}: ${typeof remainingCap === 'number' ? `+${remainingCap.toFixed(1)}°C` : '-'}`,
-    `${t.scenarioTag}: ${scenarioLabel(nowcasting?.scenarioTag)}`
+    `${t.scenarioTag}: ${scenarioLabel(nowcasting?.scenarioTag)}`,
+    `${lang === 'en' ? 'Settlement source' : '结算主源'}: ${settlementContext?.hasSettlementSource ? (lang === 'en' ? 'WU available' : 'WU 可用') : (lang === 'en' ? `missing (${settlementContext?.settlementSourceStatus ?? 'unknown'})` : `缺失（${settlementContext?.settlementSourceStatus ?? '未知'}）`)}`
   ].join(' | ');
   const contextWarningText =
     (data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrorsEffective.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale)
       ? `${t.warningPrefix}（${t.warningMarket}：${sourceLabel(data?.marketSource)}，${t.warningWeather}：${sourceLabel(data?.weatherSource)}）`
       : '';
+  const settlementModeWarning = settlementContext?.degradedSettlementMode
+    ? (lang === 'en'
+        ? `Settlement-critical source unavailable (${settlementContext.settlementSourceStatus ?? 'missing'}). Running degraded settlement mode with supporting-source proxy estimates.`
+        : `主结算源不可用（${settlementContext.settlementSourceStatus ?? 'missing'}），当前为代理预测模式（degraded settlement mode）。`)
+    : '';
   const contextSettledText = data?.marketStatus?.isSettled
     ? `${t.settledTitle}（${t.settlementTime}：${selectedSettlementLabel}）。${settledReasonText} ${t.settledForcePass}`
     : '';
+  const runAlignedExplainZh = hasLatestDecision
+    ? `（同次模型运行）连续融合值 ${typeof panelForecastContinuous === 'number' ? `${panelForecastContinuous.toFixed(2)}°C` : '-'}，结算锚点 ${typeof panelForecastInteger === 'number' ? `${panelForecastInteger}°C` : '-'}，分布峰值 ${typeof decisionMeta.mostLikelyInteger === 'number' ? `${Math.round(decisionMeta.mostLikelyInteger)}°C` : '-' }。`
+    : '';
+  const runAlignedExplainEn = hasLatestDecision
+    ? `(same model run) fused continuous ${typeof panelForecastContinuous === 'number' ? `${panelForecastContinuous.toFixed(2)}°C` : '-'}, settlement anchor ${typeof panelForecastInteger === 'number' ? `${panelForecastInteger}°C` : '-'}, mode peak ${typeof decisionMeta.mostLikelyInteger === 'number' ? `${Math.round(decisionMeta.mostLikelyInteger)}°C` : '-'}.`
+    : '';
+  const explanationSource: 'latestRun' | 'weatherSnapshotFallback' =
+    hasLatestDecision && (runAlignedExplainZh || runAlignedExplainEn)
+      ? 'latestRun'
+      : 'weatherSnapshotFallback';
 
   return (
     <SiteShell currentPath="/" lang={lang}>
-      <AutoRefreshTrigger targetDateKey={pageDateKey} />
+      <AutoRefreshTrigger targetDateKey={pageDateKey} locationKey={locationKey} />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-muted-foreground">{t.mode}</p>
           <h1 className="text-xl font-semibold">{t.title}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <select className="h-9 rounded border bg-background px-3 text-sm" defaultValue="Shanghai">
-            <option value="Shanghai">{t.city}</option>
-          </select>
-          <div className="inline-flex items-center overflow-hidden rounded border border-border text-xs">
-            <span className="px-2 py-1 text-muted-foreground">{t.dateMode}</span>
-            <Link
-              href={`/?lang=${lang}&d=${prevDayKey}`}
-              className="border-l border-border px-2 py-1 text-muted-foreground"
-            >
-              {t.datePrev}
-            </Link>
-            <span className="border-l border-border px-2 py-1">{pageDateKey}</span>
-            <Link
-              href={`/?lang=${lang}&d=${nextDayKey}`}
-              className="border-l border-border px-2 py-1 text-muted-foreground"
-            >
-              {t.dateNext}
-            </Link>
-          </div>
-          <RefreshAllButton lang={lang} targetDateKey={pageDateKey} />
+          <LocationSelector lang={lang} locationKey={locationKey} pageDateKey={pageDateKey} />
+          <DateSelector
+            lang={lang}
+            locationKey={locationKey}
+            selectedDateKey={pageDateKey}
+            todayKey={shanghaiTodayKey}
+            tomorrowKey={shanghaiTomorrowKey}
+            basePath="/"
+            label={t.dateMode}
+          />
+          <RefreshAllButton lang={lang} targetDateKey={pageDateKey} locationKey={locationKey} />
         </div>
       </div>
       <LiveMarketPoller
@@ -859,10 +991,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         bestLabel={decisionMain?.recommendedBin ?? '-'}
         bestSide={decisionMain?.recommendedSide ?? '-'}
         edge={decisionMain?.edge?.toFixed(3) ?? '-'}
-        modelProb={`${((((decisionMain?.recommendedSide === 'NO' ? recRow?.modelNoProbability : recRow?.modelProbability) ?? 0) * 100)).toFixed(1)}%`}
+        modelProb={`YES ${(recModelYesProb * 100).toFixed(1)}% / NO ${(recModelNoProb * 100).toFixed(1)}%`}
+        sideProb={decisionMain?.recommendedSide ? `${(recSelectedSideProb * 100).toFixed(2)}%` : '-'}
+        valueHint={tradingValueHint}
         marketPrice={`${((((decisionMain?.recommendedSide === 'NO' ? recRow?.noMarketPrice : recRow?.marketPrice) ?? 0) * 100)).toFixed(1)}%`}
         tradeScore={decisionMain?.tradeScore?.toFixed(2) ?? '-'}
-        warmingForecast={warmingForecastPeak != null ? `${warmingForecastPeak.toFixed(1)}°C（+1~6h峰值）` : '-'}
+        certaintyType={certaintyType}
+        certaintySummary={certaintySummaryText}
         reasonTitle={lang === 'en' ? 'Why (short)' : '为什么（简要）'}
         fullReason={decisionReasonRaw}
         labels={{
@@ -870,9 +1005,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
           recSide: t.recSide,
           edge: t.edge,
           modelProb: t.modelProb,
+          sideProb: t.sideProb,
+          valueHint: t.valueHint,
           marketPx: t.marketPx,
           tradeScore: t.tradeScore,
-          warmingForecast: lang === 'en' ? 'Warming Model Forecast' : '升温模型预测'
+          certainty: lang === 'en' ? 'Certainty Explain' : '高置信解释'
         }}
       />
 
@@ -904,7 +1041,10 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
       <ContextSummary
         title={lang === 'en' ? 'Context Summary' : '上下文摘要'}
         summary={compactStatus}
-        warningText={contextWarningText}
+        shortTermTrackLabel={lang === 'en' ? 'Short-term Temperature Trajectory (next 1-12h)' : '短临温度轨迹（未来1~12h）'}
+        shortTermTrackValue={shortTermTrackText}
+        shortTermTrackNote={shortTermTrackNote}
+        warningText={[contextWarningText, settlementModeWarning].filter(Boolean).join(' ')}
         settledText={contextSettledText}
       />
 
@@ -914,6 +1054,8 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         apiDateLabel={t.apiDate}
         statusLabel={t.status}
         reasonLabel={t.reason}
+        criticalityLabel={lang === 'en' ? 'criticality' : '关键级别'}
+        severityLabel={lang === 'en' ? 'severity' : '严重性'}
         apiRows={apiRows}
         apiStatusMap={apiStatusMap}
         statusText={statusLabel}
@@ -923,11 +1065,13 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         adjustedCol={t.adjTempCol}
         weightCol={t.weightCol}
         strictReady={strictReady}
-        weightBreakdown={forecastExplain?.weightBreakdown}
+        weightBreakdown={hasLatestDecision && runWeightBreakdown.length ? runWeightBreakdown : forecastExplain?.weightBreakdown}
         detailTitle={lang === 'en' ? 'Detailed Explanation' : '详细解释'}
-        detailText={strictReady ? (lang === 'en' ? (forecastExplain?.en ?? '-') : (forecastExplain?.zh ?? '-')) : t.strictBlock}
+        detailText={strictReady ? (lang === 'en' ? (runAlignedExplainEn || forecastExplain?.en || '-') : (runAlignedExplainZh || forecastExplain?.zh || '-')) : t.strictBlock}
         fusionMethodLabel={t.fusionMethod}
         fusionMethod={strictReady ? (forecastExplain?.method ?? '-') : '-'}
+        explanationSourceLabel={lang === 'en' ? 'explanationSource' : '解释来源'}
+        explanationSource={explanationSource}
         resolutionNote={t.resolutionPriorityNote}
         sourceBiasTitle={t.sourceBiasTitle}
         avgBiasLabel={t.avgBias}

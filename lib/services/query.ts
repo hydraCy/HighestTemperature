@@ -1,18 +1,23 @@
 import { fromJsonString } from '@/lib/utils/json';
 import { targetDayEndSettlementAt } from '@/lib/utils/market-time';
+import { getLocationConfig, type SupportedLocationKey } from '@/lib/config/locations';
 
-const SHANGHAI_TEMP_MARKET_WHERE = {
-  cityName: 'Shanghai',
-  OR: [
-    { marketSlug: { contains: 'highest-temperature-in-shanghai' } },
-    { marketTitle: { contains: 'Highest temperature in Shanghai' } }
-  ]
-};
+function marketWhereByLocation(locationKey: SupportedLocationKey) {
+  const cfg = getLocationConfig(locationKey);
+  return {
+    cityName: cfg.market.cityName,
+    OR: [
+      { marketSlug: { contains: cfg.market.slugKeyword } },
+      { marketTitle: { contains: cfg.market.titleKeyword } }
+    ]
+  };
+}
 
-function shanghaiDayRange(dateKey?: string) {
+function localDayRange(dateKey: string | undefined, timezone: string) {
   if (!dateKey) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
-  const start = new Date(`${dateKey}T00:00:00+08:00`);
+  const offset = timezone === 'Asia/Hong_Kong' ? '+08:00' : '+08:00';
+  const start = new Date(`${dateKey}T00:00:00${offset}`);
   if (!Number.isFinite(start.getTime())) return null;
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
@@ -43,12 +48,14 @@ function effectiveMarketActive(market: { isActive: boolean; rawJson: string | nu
   return market.isActive;
 }
 
-export async function getDashboardData(targetDateKey?: string) {
+export async function getDashboardData(targetDateKey?: string, locationKey: SupportedLocationKey = 'shanghai') {
   const { prisma } = await import('@/lib/db');
-  const dayRange = shanghaiDayRange(targetDateKey);
+  const cfg = getLocationConfig(locationKey);
+  const whereByLocation = marketWhereByLocation(locationKey);
+  const dayRange = localDayRange(targetDateKey, cfg.timezone);
   const market = await prisma.market.findFirst({
     where: {
-      ...SHANGHAI_TEMP_MARKET_WHERE,
+      ...whereByLocation,
       ...(dayRange ? { targetDate: dayRange } : {})
     },
     include: {
@@ -79,6 +86,8 @@ export async function getDashboardData(targetDateKey?: string) {
   });
 
   return {
+    locationKey,
+    locationConfig: cfg,
     market,
     marketStatus,
     latestRun,
@@ -126,8 +135,10 @@ export async function getMarketDetail(slug: string) {
   });
 
   if (!market) return null;
+  const locationKey: SupportedLocationKey = market.cityName === 'Hong Kong' ? 'hongkong' : 'shanghai';
+  const cfg = getLocationConfig(locationKey);
   const latestMarket = await prisma.market.findFirst({
-    where: SHANGHAI_TEMP_MARKET_WHERE,
+    where: marketWhereByLocation(locationKey),
     orderBy: [{ isActive: 'desc' }, { targetDate: 'desc' }, { updatedAt: 'desc' }],
     select: { marketSlug: true, targetDate: true }
   });
@@ -143,6 +154,8 @@ export async function getMarketDetail(slug: string) {
   });
 
   return {
+    locationKey,
+    locationConfig: cfg,
     market,
     marketStatus,
     latestRun: market.modelRuns[0] ?? null,

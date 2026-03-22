@@ -20,7 +20,27 @@ type FetchSettlementInput = {
 const DEFAULT_STATION_CODE = 'ZSPD';
 const DEFAULT_LAT = 31.15;
 const DEFAULT_LON = 121.803;
-const FALLBACK_API_KEY = 'e1f10a1e78da46f5b10a1e78da96f525';
+const FALLBACK_API_KEY = '5c241d89f91274015a577e3e17d43370';
+const SOURCE_DIAGNOSTICS_ENABLED = process.env.SOURCE_DIAGNOSTICS === '1';
+
+function maskUrlSecrets(url: string) {
+  return url.replace(/([?&]apiKey=)[^&]+/gi, '$1***');
+}
+
+function classifySourceFailure(message: string) {
+  const m = message.toLowerCase();
+  if (m.includes('401') || m.includes('unauthorized') || m.includes('forbidden')) return 'auth_error';
+  if (m.includes('http ')) return 'http_error';
+  if (m.includes('parse') || m.includes('zod')) return 'parse_error';
+  if (m.includes('no data') || m.includes('无有效温度')) return 'empty_payload';
+  if (m.includes('missing') || m.includes('未配置')) return 'config_missing';
+  return 'http_error';
+}
+
+function sourceDiagLog(source: string, payload: Record<string, unknown>) {
+  if (!SOURCE_DIAGNOSTICS_ENABLED) return;
+  console.info(`[source-diagnostics:${source}] ${JSON.stringify(payload)}`);
+}
 
 export async function fetchWundergroundSettledMaxTemp(input: FetchSettlementInput) {
   const stationCode = input.stationCode ?? DEFAULT_STATION_CODE;
@@ -34,7 +54,21 @@ export async function fetchWundergroundSettledMaxTemp(input: FetchSettlementInpu
   for (const apiKey of apiKeys) {
     try {
       const url = `https://api.weather.com/v1/geocode/${latitude}/${longitude}/observations/historical.json?apiKey=${apiKey}&units=m&startDate=${ymd}&endDate=${ymd}`;
+      sourceDiagLog('wunderground_settlement', {
+        phase: 'request',
+        method: 'GET',
+        url: maskUrlSecrets(url),
+        params: { units: 'm', startDate: ymd, endDate: ymd },
+        headers: { accept: 'application/json', userAgent: 'Mozilla/5.0 (ShanghaiDecisionBot)' }
+      });
       const json = await fetchJsonWithCurlFallback(url, 12000);
+      sourceDiagLog('wunderground_settlement', {
+        phase: 'response',
+        url: maskUrlSecrets(url),
+        httpStatus: 200,
+        parserKeys: json && typeof json === 'object' ? Object.keys(json as Record<string, unknown>).slice(0, 10) : [],
+        bodyPreview: JSON.stringify(json).slice(0, 500)
+      });
       const parsed = historicalResponseSchema.parse(json);
       const observations = parsed.observations ?? [];
       const filteredTemps = observations
@@ -59,6 +93,11 @@ export async function fetchWundergroundSettledMaxTemp(input: FetchSettlementInpu
       } as const;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      sourceDiagLog('wunderground_settlement', {
+        phase: 'error',
+        error: lastError.message,
+        failureCategory: classifySourceFailure(lastError.message)
+      });
     }
   }
 
@@ -97,4 +136,3 @@ function toDateKeyShanghai(date: Date) {
   const d = parts.find((p) => p.type === 'day')?.value ?? '00';
   return `${y}-${m}-${d}`;
 }
-

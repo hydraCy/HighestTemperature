@@ -246,11 +246,13 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
       input.marketConsensusBin &&
       best.outcomeLabel !== input.marketConsensusBin
   );
-  if (decision === 'BUY' && isConsensusConflict) {
+  const consensusDowngraded = decision === 'BUY' && isConsensusConflict;
+  if (consensusDowngraded) {
     decision = 'WATCH';
   }
-  const decisionZh = decision === 'BUY' ? '买入' : decision === 'WATCH' ? '观察' : '放弃';
-  const decisionEn = decision === 'BUY' ? 'BUY' : decision === 'WATCH' ? 'WATCH' : 'PASS';
+  const finalDecision = isClosedByTime || isInactive ? 'PASS' : decision;
+  const decisionZh = finalDecision === 'BUY' ? '买入' : finalDecision === 'WATCH' ? '观察' : '放弃';
+  const decisionEn = finalDecision === 'BUY' ? 'BUY' : finalDecision === 'WATCH' ? 'WATCH' : 'PASS';
 
   const riskFlags = buildRiskFlags({
     cloudCover: input.cloudCover,
@@ -309,12 +311,16 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const profitabilityTipEn = !candidates.length
     ? `No bin meets both net-profit and win-rate thresholds (min win-rate ${(effectiveMinSideProb * 100).toFixed(0)}%); PASS is recommended.`
     : `Global mutually-exclusive constraint is applied with target temperature ${lockedTargetTemp}°C (only target bin can be YES; all others are NO). Tradable net edge is about ${(edge * 100).toFixed(1)}%, preferred side is ${best?.bestSide ?? '-'} with estimated win-rate ${((best?.sideProbability ?? 0) * 100).toFixed(0)}%.`;
-  const consensusTip = isConsensusConflict
+  const consensusTip = consensusDowngraded
     ? `当前盘口主共识在 ${input.marketConsensusBin}（价格 ${(input.marketConsensusPrice! * 100).toFixed(1)}%），与模型优先方向冲突，已从 BUY 降级为 WATCH。`
-    : '';
-  const consensusTipEn = isConsensusConflict
+    : isConsensusConflict
+      ? `当前盘口主共识在 ${input.marketConsensusBin}（价格 ${(input.marketConsensusPrice! * 100).toFixed(1)}%），与模型优先方向存在冲突，已纳入风控评估。`
+      : '';
+  const consensusTipEn = consensusDowngraded
     ? `Strong market consensus is ${input.marketConsensusBin} (${((input.marketConsensusPrice ?? 0) * 100).toFixed(1)}%), conflicting with model preference; BUY is downgraded to WATCH.`
-    : '';
+    : isConsensusConflict
+      ? `Strong market consensus is ${input.marketConsensusBin} (${((input.marketConsensusPrice ?? 0) * 100).toFixed(1)}%), which conflicts with model preference and is included in risk control evaluation.`
+      : '';
   const secondEntryTip = hasPriorEntry
     ? `同目标日已存在历史入场，本次启用二次入场保护（最小Edge ${(effectiveMinEdge * 100).toFixed(1)}%，最小胜率 ${(effectiveMinSideProb * 100).toFixed(0)}%）。`
     : '';
@@ -327,7 +333,6 @@ export function runTradingDecision(input: TradingInput, timezone = 'Asia/Shangha
   const reasonEn = `Forecast max temperature for target day is about ${Math.round(input.maxTempSoFar)}°C, with ${input.tempRise2h.toFixed(1)}°C rise in the 2 hours before peak and timing score ${timingScore.toFixed(0)}. Model view on ${best?.outcomeLabel ?? '-'} is compared against market pricing; ${profitabilityTipEn} Weather stability is ${weatherScore.toFixed(0)} and data quality is ${dataQualityScore.toFixed(0)}. Overall recommendation: ${decisionEn}. ${secondEntryTipEn}${consensusTipEn}${lockTipEn}${mismatchTipEn}${settleTipEn}${inactiveTipEn}`.trim();
   const reason = `${reasonZh}\nEN: ${reasonEn}`;
 
-  const finalDecision = isClosedByTime || isInactive ? 'PASS' : decision;
   const finalPositionSize = isClosedByTime || isInactive || finalDecision !== 'BUY' ? 0 : positionSize;
   const portfolioEV = edge * finalPositionSize;
 

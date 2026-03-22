@@ -1,11 +1,14 @@
 import { prisma } from '@/lib/db';
 import { toJsonString } from '@/lib/utils/json';
 import { fromJsonString } from '@/lib/utils/json';
-import { fetchShanghaiMarket } from '@/lib/services/polymarket';
+import { fetchMarketByLocation } from '@/lib/services/polymarket-by-location';
 import { parseResolutionMetadata } from '@/lib/services/resolution-parser';
-import { fetchShanghaiWeatherAssist } from '@/lib/services/weather-assist';
+import { fetchWeatherAssistByLocation } from '@/lib/services/weather-assist';
 import { fetchWundergroundSettledMaxTemp } from '@/lib/services/wunderground-settlement';
+import { refreshWuApiKey } from '@/lib/services/wu-apikey-refresh';
 import { targetDayEndSettlementAt } from '@/lib/utils/market-time';
+import { getLocationConfig, type SupportedLocationKey } from '@/lib/config/locations';
+import { resolvePipelineRequest, type PipelineRequest } from '@/lib/config/pipeline-request';
 import { estimateProjectedFinalTemperature } from '@/src/lib/trading-engine/model';
 import { computeConstraintBounds } from '@/src/lib/trading-engine/constraints';
 import {
@@ -13,23 +16,32 @@ import {
 } from '@/src/lib/trading-engine/settlementMapping';
 import { runProbabilityEngine } from '@/src/lib/probability-engine';
 import { liveToProbabilityInput } from '@/src/lib/adapters/live-to-engine';
-import { loadModelConfig } from '@/src/lib/model-config';
+import { loadModelConfig, resolveModelParamsForBucket } from '@/src/lib/model-config';
+import type { CertaintyReason, CertaintySummary, CertaintyType } from '@/src/lib/explainability/types';
+import { MODEL_BASELINE_VERSION } from '@/src/lib/explainability/baseline';
 import { runTradingDecision } from '@/src/lib/trading-engine/tradingEngine';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
 import { Prisma } from '@prisma/client';
+import type { SnapshotBucket } from '@/src/lib/backtest/types';
+import {
+  bucketHoursToPeak,
+  bucketObservedVsMuGap
+} from '@/src/lib/trading-engine/delta-distribution';
 
-const MODEL_VERSION = 'shanghai-rule-v1';
-const SHANGHAI_TEMP_MARKET_WHERE: Prisma.MarketWhereInput = {
-  cityName: 'Shanghai',
-  OR: [
-    { marketSlug: { contains: 'highest-temperature-in-shanghai' } },
-    { marketTitle: { contains: 'Highest temperature in Shanghai' } }
-  ]
-};
+function marketWhereByLocation(locationKey: SupportedLocationKey): Prisma.MarketWhereInput {
+  const cfg = getLocationConfig(locationKey);
+  return {
+    cityName: cfg.market.cityName,
+    OR: [
+      { marketSlug: { contains: cfg.market.slugKeyword } },
+      { marketTitle: { contains: cfg.market.titleKeyword } }
+    ]
+  };
+}
 
-function shanghaiDateKey(date: Date) {
+function localDateKey(date: Date, timezone = 'Asia/Shanghai') {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
@@ -40,35 +52,93 @@ function shanghaiDateKey(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
-function previousShanghaiDate(date: Date) {
-  const shLocal = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+function previousLocalDate(date: Date, timezone = 'Asia/Shanghai') {
+  const shLocal = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
   shLocal.setDate(shLocal.getDate() - 1);
-  return shanghaiDateKey(shLocal);
+  return localDateKey(shLocal, timezone);
 }
 
-function shanghaiDateEquals(a: Date, b: Date) {
-  return shanghaiDateKey(a) === shanghaiDateKey(b);
+function localDateEquals(a: Date, b: Date, timezone = 'Asia/Shanghai') {
+  return localDateKey(a, timezone) === localDateKey(b, timezone);
 }
 
-function shanghaiHourNow(date: Date) {
+function localHourNow(date: Date, timezone = 'Asia/Shanghai') {
   return Number(
     new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Shanghai',
+      timeZone: timezone,
       hour12: false,
       hour: '2-digit'
     }).format(date),
   );
 }
 
-function shanghaiDayRangeUtc(dateKey: string) {
+function snapshotBucketFromHour(hour: number): SnapshotBucket {
+  if (hour < 10) return '08';
+  if (hour < 13) return '11';
+  if (hour < 16) return '14';
+  return 'late';
+}
+
+function summarizeCertainty(params: {
+  maxModelProb: number;
+  lowerBound?: number;
+  upperBound?: number;
+  observedMax?: number | null;
+  currentTemp?: number | null;
+  remainingCap?: number;
+  spreadSigmaRaw?: number;
+}): CertaintySummary {
+  // Explainability layer only:
+  // this summary is for UI/debug interpretation and is intentionally decoupled
+  // from BUY/WATCH/PASS rule evaluation.
+  const reasons: CertaintyReason[] = [];
+  const l = Number.isFinite(params.lowerBound) ? Number(params.lowerBound) : undefined;
+  const u = Number.isFinite(params.upperBound) ? Number(params.upperBound) : undefined;
+  const width = l != null && u != null && u > l ? u - l : undefined;
+  if (width != null && width <= 0.9) reasons.push('narrow_truncation_window');
+  if (typeof params.remainingCap === 'number' && params.remainingCap <= 0.8) reasons.push('tight_upside_cap');
+  if (
+    typeof params.observedMax === 'number' &&
+    typeof params.currentTemp === 'number' &&
+    params.observedMax >= params.currentTemp - 0.2
+  ) reasons.push('observed_floor_active');
+  if (typeof params.spreadSigmaRaw === 'number' && params.spreadSigmaRaw <= 0.35) reasons.push('high_source_consensus');
+
+  const isStructuralCertainty = params.maxModelProb >= 0.95 && reasons.length > 0;
+  const isModelCertainty = params.maxModelProb >= 0.95 && reasons.length === 0;
+  const certaintyType: CertaintyType =
+    isStructuralCertainty ? 'structural' : isModelCertainty ? 'model' : 'mixed';
+  const summaryZh = isStructuralCertainty
+    ? `高置信主要来自结构性约束：${reasons.join(' + ')}。`
+    : isModelCertainty
+      ? '高置信主要来自模型形状，缺少结构性约束支撑。'
+      : '当前不属于结构性高置信。';
+  const summaryEn = isStructuralCertainty
+    ? `High confidence is structural: ${reasons.join(' + ')}.`
+    : isModelCertainty
+      ? 'High confidence is mainly model-shaped without strong structural constraints.'
+      : 'No structural certainty signal.';
+
   return {
-    start: new Date(`${dateKey}T00:00:00+08:00`),
-    end: new Date(`${dateKey}T23:59:59.999+08:00`)
+    isStructuralCertainty,
+    structuralReasons: reasons,
+    certaintyType,
+    summaryZh,
+    summaryEn,
+    widthFromL: width ?? null
   };
 }
 
-function shanghaiDayDateFilter(dateKey: string) {
-  const { start, end } = shanghaiDayRangeUtc(dateKey);
+function localDayRangeUtc(dateKey: string, timezone = 'Asia/Shanghai') {
+  const offset = timezone === 'Asia/Hong_Kong' ? '+08:00' : '+08:00';
+  return {
+    start: new Date(`${dateKey}T00:00:00${offset}`),
+    end: new Date(`${dateKey}T23:59:59.999${offset}`)
+  };
+}
+
+function localDayDateFilter(dateKey: string, timezone = 'Asia/Shanghai') {
+  const { start, end } = localDayRangeUtc(dateKey, timezone);
   return { gte: start, lte: end };
 }
 
@@ -137,9 +207,14 @@ async function computeBiasAdjustedFusedTarget(sourceDailyMax?: {
   };
 }
 
-async function recordForecastBiasFromPreviousDay(marketId: string, targetDate: Date, finalMax: number) {
-  const prevKey = previousShanghaiDate(targetDate);
-  const { start, end } = shanghaiDayRangeUtc(prevKey);
+async function recordForecastBiasFromPreviousDay(
+  marketId: string,
+  targetDate: Date,
+  finalMax: number,
+  timezone = 'Asia/Shanghai'
+) {
+  const prevKey = previousLocalDate(targetDate, timezone);
+  const { start, end } = localDayRangeUtc(prevKey, timezone);
   const snap = await prisma.snapshot.findFirst({
     where: { marketId, capturedAt: { gte: start, lte: end } },
     orderBy: { capturedAt: 'desc' }
@@ -235,34 +310,22 @@ export function enforceStrictWeatherSourceGate(
   }>(weatherRawJson, {});
 
   const meta = weatherRaw.raw ?? {};
-  const requiredFromMeta = Array.isArray(meta.strictRequiredSources) ? meta.strictRequiredSources : [];
-  const statusMap: Record<string, boolean> = {
-    aviationweather: meta.aviationweather === 'ok',
-    open_meteo: meta.openMeteo === 'ok',
-    nws_hourly: meta.nwsHourly === 'ok',
-    wttr: meta.wttr === 'ok',
-    met_no: meta.metNo === 'ok',
-    weatherapi: meta.weatherapi === 'ok',
-    qweather: meta.qweather === 'ok'
-  };
+  const apiStatus = (meta as {
+    apiStatus?: Record<string, { status?: string; criticality?: 'settlement_critical' | 'supporting' }>;
+  }).apiStatus ?? {};
   const sourceDailyMax = meta.sourceDailyMax;
-  const requiresNws = requiredFromMeta.includes('nws_hourly');
-  const requiresOpenMeteo = requiredFromMeta.includes('open_meteo');
-  const inferredMissing = [
-    sourceDailyMax?.wundergroundDaily == null ? 'wunderground_daily' : null,
-    (requiresOpenMeteo && sourceDailyMax?.openMeteo == null) ? 'open_meteo' : null,
-    (requiresNws && sourceDailyMax?.nwsHourly == null) ? 'nws_hourly' : null,
-    sourceDailyMax?.wttr == null ? 'wttr' : null,
-    sourceDailyMax?.metNo == null ? 'met_no' : null,
-    (sourceDailyMax?.weatherApi == null && sourceDailyMax?.qWeather == null && sourceDailyMax?.cmaChina == null) ? 'weatherapi' : null
-  ].filter((x): x is string => Boolean(x));
-  const missingByRequired = requiredFromMeta.length
-    ? requiredFromMeta.filter((s) => statusMap[s] === false)
-    : [];
-  const missingSources = (meta.missingSources && meta.missingSources.length > 0)
-    ? meta.missingSources
-    : (missingByRequired.length ? missingByRequired : inferredMissing);
-  const strictReady = typeof meta.strictReady === 'boolean' ? meta.strictReady : missingSources.length === 0;
+  // Decision-layer strict gate:
+  // supporting sources must not block BUY/WATCH/PASS output.
+  // Only settlement-critical source failures are allowed to force PASS.
+  const missingSourcesFromApiStatus = Object.entries(apiStatus)
+    .filter(([, v]) => v?.criticality === 'settlement_critical' && v?.status !== 'ok')
+    .map(([k]) => k);
+  const fallbackSettlementMissing =
+    missingSourcesFromApiStatus.length === 0 && sourceDailyMax?.wundergroundDaily == null
+      ? ['wunderground_daily']
+      : [];
+  const missingSources = [...missingSourcesFromApiStatus, ...fallbackSettlementMissing];
+  const strictReady = missingSources.length === 0;
 
   if (strictReady) return decision;
 
@@ -324,7 +387,8 @@ export function enforceWeatherFreshnessGate(
 export function enforceDateAlignmentGate(
   decision: ReturnType<typeof runTradingDecision>,
   marketTargetDate: Date,
-  weatherRawJson: string | null
+  weatherRawJson: string | null,
+  timezone = 'Asia/Shanghai'
 ) {
   const weatherRaw = fromJsonString<{
     raw?: {
@@ -332,7 +396,7 @@ export function enforceDateAlignmentGate(
     };
   }>(weatherRawJson, {});
   const weatherTargetDate = weatherRaw.raw?.targetDate ?? null;
-  const marketTargetKey = shanghaiDateKey(marketTargetDate);
+  const marketTargetKey = localDateKey(marketTargetDate, timezone);
   if (!weatherTargetDate || weatherTargetDate === marketTargetKey) return decision;
 
   const zh = `检测到目标日不一致：market=${marketTargetKey}, weather=${weatherTargetDate}。系统禁止给出交易推荐，强制 PASS，仓位为 0。`;
@@ -350,14 +414,45 @@ export function enforceDateAlignmentGate(
   };
 }
 
-export async function refreshMarketData(targetDateKey?: string | null) {
-  const marketRes = await fetchShanghaiMarket({ targetDateKey });
+export function enforceWuFutureHoursGate(
+  decision: ReturnType<typeof runTradingDecision>,
+  params: {
+    isTargetDateToday: boolean;
+    nowcastingFutureHours?: Array<{ temp?: number | null }> | null;
+  }
+) {
+  if (!params.isTargetDateToday) return decision;
+  const future = Array.isArray(params.nowcastingFutureHours) ? params.nowcastingFutureHours : [];
+  if (future.length > 0) return decision;
+
+  const zh = 'Wunderground 短临 futureHours 缺失，已按策略中断实时判断并强制 PASS（仓位为 0）。';
+  const en = 'Wunderground nowcasting futureHours is missing. Realtime decision flow is interrupted and forced to PASS (position = 0).';
+  const mergedFlags = Array.from(new Set([...(decision.riskFlags ?? []), 'wu_future_hours_missing', 'short_term_unavailable']));
+  return {
+    ...decision,
+    decision: 'PASS' as const,
+    tradeScore: 0,
+    positionSize: 0,
+    riskFlags: mergedFlags,
+    reasonZh: zh,
+    reasonEn: en,
+    reason: `${zh}\nEN: ${en}`
+  };
+}
+
+export async function refreshMarketData(request?: PipelineRequest) {
+  const resolved = resolvePipelineRequest(request);
+  const locationCfg = getLocationConfig(resolved.locationKey);
+  const marketRes = await fetchMarketByLocation({
+    locationKey: resolved.locationKey,
+    targetDateKey: resolved.targetDate
+  });
   const m = marketRes.data;
 
   const market = await prisma.market.upsert({
     where: { marketSlug: m.marketSlug },
     create: {
-      cityName: 'Shanghai',
+      cityName: locationCfg.market.cityName,
       eventId: m.eventId,
       marketSlug: m.marketSlug,
       marketTitle: m.marketTitle,
@@ -418,18 +513,52 @@ export async function refreshMarketData(targetDateKey?: string | null) {
   return market;
 }
 
-export async function refreshWeatherData(targetDateKey?: string | null) {
-  const targetWhere = targetDateKey ? { targetDate: shanghaiDayDateFilter(targetDateKey) } : {};
+export async function refreshWeatherData(request?: PipelineRequest) {
+  const resolved = resolvePipelineRequest(request);
+  const targetWhere = resolved.targetDate ? { targetDate: localDayDateFilter(resolved.targetDate, resolved.timezone) } : {};
   const market = await prisma.market.findFirst({
-    where: { ...SHANGHAI_TEMP_MARKET_WHERE, ...targetWhere, isActive: true },
+    where: { ...marketWhereByLocation(resolved.locationKey), ...targetWhere, isActive: true },
     orderBy: [{ targetDate: 'desc' }, { updatedAt: 'desc' }]
   });
   if (!market) return null;
 
-  const weatherRes = await fetchShanghaiWeatherAssist(market.targetDate, market.id);
-  const w = weatherRes.data;
+  let weatherRes = await fetchWeatherAssistByLocation(resolved.locationKey, market.targetDate, market.id);
+  let w = weatherRes.data;
+
+  const sourceStatus = (w.raw as {
+    sourceStatus?: {
+      apiStatus?: {
+        wunderground?: { status?: string };
+        wunderground_daily?: { status?: string };
+      };
+    };
+  } | undefined)?.sourceStatus;
+
+  const wuNowStatus = sourceStatus?.apiStatus?.wunderground?.status;
+  const wuDailyStatus = sourceStatus?.apiStatus?.wunderground_daily?.status;
+  const missingWuKey = !(process.env.WUNDERGROUND_API_KEY?.trim());
+  const wuFetchFailed = wuNowStatus === 'fetch_error' || wuDailyStatus === 'fetch_error';
+
+  // Auto-recover path:
+  // when WU failed and no configured key exists, try refreshing key once and refetch weather.
+  if (missingWuKey && wuFetchFailed) {
+    const cfg = getLocationConfig(resolved.locationKey);
+    const refreshed = await refreshWuApiKey({
+      stationCode: cfg.weather.stationCode,
+      stationPath: cfg.weather.wundergroundHistoryPath,
+      latitude: cfg.lat,
+      longitude: cfg.lon,
+      persistEnv: true,
+      force: false
+    });
+    if (refreshed.ok) {
+      weatherRes = await fetchWeatherAssistByLocation(resolved.locationKey, market.targetDate, market.id);
+      w = weatherRes.data;
+    }
+  }
+
   const weatherTargetDate = (w.raw as { targetDate?: string } | undefined)?.targetDate;
-  const marketTargetDate = shanghaiDateKey(market.targetDate);
+  const marketTargetDate = localDateKey(market.targetDate, resolved.timezone);
   if (weatherTargetDate && weatherTargetDate !== marketTargetDate) {
     throw new Error(`天气数据日期不一致：weather=${weatherTargetDate}, market=${marketTargetDate}`);
   }
@@ -458,11 +587,12 @@ export async function refreshWeatherData(targetDateKey?: string | null) {
 export async function runModelAndDecision(
   totalCapital = 10000,
   maxSingleTradePercent = 0.1,
-  targetDateKey?: string | null
+  request?: PipelineRequest
 ) {
-  const targetWhere = targetDateKey ? { targetDate: shanghaiDayDateFilter(targetDateKey) } : {};
+  const resolved = resolvePipelineRequest(request);
+  const targetWhere = resolved.targetDate ? { targetDate: localDayDateFilter(resolved.targetDate, resolved.timezone) } : {};
   const market = await prisma.market.findFirst({
-    where: { ...SHANGHAI_TEMP_MARKET_WHERE, ...targetWhere },
+    where: { ...marketWhereByLocation(resolved.locationKey), ...targetWhere },
     include: {
       bins: { orderBy: { outcomeIndex: 'asc' } },
       resolutionMetadata: true,
@@ -542,7 +672,7 @@ export async function runModelAndDecision(
   const biasAdjusted = await computeBiasAdjustedFusedTarget(sourceDailyMax ?? null);
   const fusedContinuous = biasAdjusted?.fused ?? sourceDailyMax?.fusedContinuous ?? sourceDailyMax?.fused ?? weather.maxTempSoFar;
   const fusedAnchor = sourceDailyMax?.fusedAnchor ?? Math.round(fusedContinuous);
-  const isTargetDateToday = shanghaiDateEquals(market.targetDate, new Date());
+  const isTargetDateToday = resolved.isTargetDateToday;
 
   const modelCurrentTemp = isTargetDateToday
     ? (nowcasting?.currentTemp ?? weather.temperature2m)
@@ -567,7 +697,26 @@ export async function runModelAndDecision(
   const modelWindSpeed = isTargetDateToday
     ? (nowcasting?.windSpeed ?? weather.windSpeed ?? 0)
     : (weather.windSpeed ?? 0);
-  const todayMaxTemp = nowcasting?.todayMaxTemp ?? weather.maxTempSoFar;
+  const observedMaxCandidates = isTargetDateToday
+    ? [nowcasting?.todayMaxTemp, weather.maxTempSoFar, modelCurrentTemp]
+        .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+    : [];
+  const observedMaxSource =
+    isTargetDateToday && observedMaxCandidates.length > 0
+      ? (nowcasting?.todayMaxTemp != null &&
+          Number.isFinite(nowcasting.todayMaxTemp) &&
+          nowcasting.todayMaxTemp >= weather.maxTempSoFar &&
+          nowcasting.todayMaxTemp >= modelCurrentTemp
+          ? 'nowcasting.todayMaxTemp'
+          : weather.maxTempSoFar >= modelCurrentTemp
+            ? 'weather.maxTempSoFar'
+            : 'currentTemp_floor')
+      : null;
+  // Use a single monotonic floor source to avoid L/U jitter between adjacent refreshes.
+  // We intentionally take the strongest observed value among nowcasting / weather snapshot / current temp.
+  const todayMaxTempStable = observedMaxCandidates.length
+    ? Math.max(...observedMaxCandidates)
+    : undefined;
   const sourceSpread = sourceDailyMax?.spread;
   const modelConfig = loadModelConfig();
 
@@ -576,11 +725,11 @@ export async function runModelAndDecision(
   // Production distribution is built by: live adapter (mu/sigma) + constraints (L/U).
   const projectedContinuous = estimateProjectedFinalTemperature({
     currentTemp: modelCurrentTemp,
-    maxTempSoFar: isTargetDateToday ? (todayMaxTemp ?? modelCurrentTemp) : modelCurrentTemp,
-    observedMaxTemp: todayMaxTemp,
+    maxTempSoFar: isTargetDateToday ? (todayMaxTempStable ?? modelCurrentTemp) : modelCurrentTemp,
+    observedMaxTemp: todayMaxTempStable,
     forecastAnchorTemp: fusedAnchor,
     isTargetDateToday,
-    nowHourLocal: shanghaiHourNow(new Date()),
+    nowHourLocal: localHourNow(new Date(), resolved.timezone),
     peakWindowStartHour: learnedPeakWindow?.startHour,
     futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
     futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
@@ -592,36 +741,116 @@ export async function runModelAndDecision(
     precipitationProb: modelPrecipProb,
     windSpeed: modelWindSpeed
   });
-  const nowHourLocal = shanghaiHourNow(new Date());
+  const nowHourLocal = localHourNow(new Date(), resolved.timezone);
+  const snapshotBucket = snapshotBucketFromHour(nowHourLocal);
   const learnedStartHour = Number.isFinite(learnedPeakWindow?.startHour) ? Number(learnedPeakWindow?.startHour) : 13;
   const learnedEndHour = Number.isFinite(learnedPeakWindow?.endHour) ? Number(learnedPeakWindow?.endHour) : 16;
+  const peakHourLocal = (learnedStartHour + learnedEndHour) / 2;
+  const hoursToPeak = peakHourLocal - nowHourLocal;
+  const observedVsMuGap = isTargetDateToday && typeof todayMaxTempStable === 'number'
+    ? Math.abs(todayMaxTempStable - fusedContinuous)
+    : 0;
+  const resolvedModelParams = resolveModelParamsForBucket({
+    bucket: snapshotBucket,
+    modelConfig,
+    context: {
+      snapshotBucket,
+      hoursToPeakBucket: bucketHoursToPeak(hoursToPeak),
+      observedVsMuGapBucket: bucketObservedVsMuGap(observedVsMuGap)
+    }
+  });
   // Future 1-6h temps are passed only into computeConstraintBounds
   // to derive bounding constraints (e.g. maxFutureTemp / upper bound).
   // They are intentionally excluded from direct mu/sigma shaping.
   const futureTemps = (nowcasting?.futureHours ?? [])
-    .slice(0, 6)
+    .slice(0, 12)
     .map((x) => x.temp)
     .filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
   const constraints = computeConstraintBounds({
     isTargetDateToday,
     nowHourLocal,
+    snapshotBucket,
     learnedPeakWindowStartHour: learnedStartHour,
     learnedPeakWindowEndHour: learnedEndHour,
-    observedMaxTemp: todayMaxTemp,
+    observedMaxTemp: isTargetDateToday ? todayMaxTempStable : undefined,
     currentTemp: modelCurrentTemp,
-    futureTemps1To6h: futureTemps,
+    futureTemps1To6h: isTargetDateToday ? futureTemps : [],
     cloudCover: modelCloudCover,
-    windSpeed: modelWindSpeed
+    windSpeed: modelWindSpeed,
+    peakHourLocal,
+    observedVsMuGap,
+    deltaDistribution: resolvedModelParams.remainingCapDistribution
+      ? {
+        key: resolvedModelParams.remainingCapDistribution.key,
+        q25: resolvedModelParams.remainingCapDistribution.q25,
+        q50: resolvedModelParams.remainingCapDistribution.q50,
+        q75: resolvedModelParams.remainingCapDistribution.q75,
+        q90: resolvedModelParams.remainingCapDistribution.q90,
+        q95: resolvedModelParams.remainingCapDistribution.q95,
+        mean: resolvedModelParams.remainingCapDistribution.mean,
+        std: resolvedModelParams.remainingCapDistribution.std,
+        count: resolvedModelParams.remainingCapDistribution.count
+      }
+      : undefined
   });
   const finalMinAllowedInteger = constraints.minAllowedInteger;
-  const maxAllowedInteger = constraints.maxAllowedInteger;
+  let maxContinuousForEngine = constraints.maxContinuous;
+  let upperBoundStabilization:
+    | 'none'
+    | 'pre_late_soft_tail_relax_applied'
+    | 'pre_late_soft_tail_not_needed' = 'none';
+  // Before late-session, keep U from becoming overly tight; otherwise right-tail bins
+  // can be mechanically zeroed even when fused forecast still supports mild upside.
+  if (
+    isTargetDateToday &&
+    nowHourLocal < learnedEndHour &&
+    typeof todayMaxTempStable === 'number' &&
+    Number.isFinite(todayMaxTempStable) &&
+    typeof fusedContinuous === 'number' &&
+    Number.isFinite(fusedContinuous)
+  ) {
+    const spreadHint = typeof sourceSpread === 'number' && Number.isFinite(sourceSpread) ? sourceSpread : 1.2;
+    const sigmaHint = Math.max(0.9, Math.min(1.35, 0.8 + spreadHint * 0.18));
+    const modelTailUpper = fusedContinuous + Math.max(0.55, sigmaHint * 0.55);
+    const absoluteUpperCap = todayMaxTempStable + 3.2;
+    const relaxedUpper = Math.min(absoluteUpperCap, modelTailUpper);
+    const rawUpper = constraints.maxContinuous;
+    if (typeof rawUpper === 'number' && Number.isFinite(rawUpper)) {
+      if (relaxedUpper > rawUpper) {
+        maxContinuousForEngine = relaxedUpper;
+        upperBoundStabilization = 'pre_late_soft_tail_relax_applied';
+      } else {
+        upperBoundStabilization = 'pre_late_soft_tail_not_needed';
+      }
+    } else {
+      maxContinuousForEngine = relaxedUpper;
+      upperBoundStabilization = 'pre_late_soft_tail_relax_applied';
+    }
+  }
+  if (
+    typeof constraints.minContinuous === 'number' &&
+    Number.isFinite(constraints.minContinuous) &&
+    typeof maxContinuousForEngine === 'number' &&
+    Number.isFinite(maxContinuousForEngine) &&
+    maxContinuousForEngine <= constraints.minContinuous
+  ) {
+    maxContinuousForEngine = constraints.minContinuous + 0.5;
+  }
+  const maxAllowedInteger =
+    typeof maxContinuousForEngine === 'number' && Number.isFinite(maxContinuousForEngine)
+      ? Math.floor(maxContinuousForEngine + 0.5)
+      : constraints.maxAllowedInteger;
   const beforePeak = isTargetDateToday && nowHourLocal < learnedStartHour;
   const useAsymmetricSigma = (process.env.ENABLE_ASYMMETRIC_SIGMA ?? 'false').toLowerCase() === 'true';
   const distributionMean = isTargetDateToday
-    ? Math.max(fusedContinuous, todayMaxTemp ?? Number.NEGATIVE_INFINITY)
+    ? Math.max(fusedContinuous, todayMaxTempStable ?? Number.NEGATIVE_INFINITY)
     : fusedContinuous;
   const liveAdapted = liveToProbabilityInput({
-    targetDateKey: shanghaiDateKey(market.targetDate),
+    locationKey: resolved.locationKey,
+    targetDateKey: resolved.targetDate,
+    isTargetDateToday: resolved.isTargetDateToday,
+    isFutureDate: resolved.isFutureDate,
+    dayOffset: resolved.dayOffset,
     snapshotTime: `${String(nowHourLocal).padStart(2, '0')}:00`,
     marketBins: market.bins.map((b) => ({
       label: b.outcomeLabel,
@@ -630,16 +859,35 @@ export async function runModelAndDecision(
       bestBid: b.bestBid ?? undefined
     })),
     sourceDailyMax,
-    observedMaxSoFar: todayMaxTemp,
+    observedMaxSoFar: isTargetDateToday ? todayMaxTempStable : undefined,
     currentTemp: modelCurrentTemp,
     cloudCover: modelCloudCover,
     windSpeed: modelWindSpeed,
     rainProb: modelPrecipProb,
     constraints: {
       minContinuous: constraints.minContinuous,
-      maxContinuous: constraints.maxContinuous,
+      maxContinuous: maxContinuousForEngine,
       minAllowedInteger: finalMinAllowedInteger,
-      maxAllowedInteger
+      maxAllowedInteger,
+      deltaConstraint:
+        isTargetDateToday &&
+        typeof todayMaxTempStable === 'number' &&
+        Number.isFinite(todayMaxTempStable) &&
+        constraints.debugSummary.deltaQ50 != null &&
+        constraints.debugSummary.deltaStd != null &&
+        constraints.debugSummary.deltaQ95 != null
+          ? {
+            observedMax: todayMaxTempStable,
+            deltaMean: Math.max(0.01, Number(constraints.debugSummary.deltaQ50)),
+            deltaStd: Math.max(0.35, Number(constraints.debugSummary.deltaStd)),
+            deltaUpper: Math.max(0.2, Number(constraints.debugSummary.deltaQ95)),
+            source: constraints.debugSummary.remainingCapSource === 'distribution'
+              ? 'distribution'
+              : constraints.debugSummary.remainingCapSource === 'distribution_fallback'
+                ? 'distribution_fallback'
+                : 'none'
+          }
+          : undefined
     },
     fallbackMean: distributionMean,
     fallbackSigma: typeof sourceSpread === 'number' && Number.isFinite(sourceSpread)
@@ -662,6 +910,7 @@ export async function runModelAndDecision(
   };
   const settlementMean = integerDistribution.reduce((acc, r) => acc + r.temp * r.probability, 0);
   const probs = probabilityOutput.binProbabilities;
+  const maxModelProb = probs.length ? Math.max(...probs) : 0;
   const probByLabel = new Map(
     market.bins.map((b, i) => [b.outcomeLabel, probs[i] ?? 0] as const)
   );
@@ -672,17 +921,19 @@ export async function runModelAndDecision(
     targetDate: market.targetDate,
     marketEndAt: targetDayEndSettlementAt(market.targetDate),
     marketActive: marketActiveEffective,
-    observedMaxTemp: todayMaxTemp,
-    futureTemp1h: nowcasting?.futureHours?.[0]?.temp,
-    futureTemp2h: nowcasting?.futureHours?.[1]?.temp,
-    futureTemp3h: nowcasting?.futureHours?.[2]?.temp,
-    futureTemp4h: nowcasting?.futureHours?.[3]?.temp,
-    futureTemp5h: nowcasting?.futureHours?.[4]?.temp,
-    futureTemp6h: nowcasting?.futureHours?.[5]?.temp,
+    observedMaxTemp: isTargetDateToday ? todayMaxTempStable : undefined,
+    futureTemp1h: isTargetDateToday ? nowcasting?.futureHours?.[0]?.temp : undefined,
+    futureTemp2h: isTargetDateToday ? nowcasting?.futureHours?.[1]?.temp : undefined,
+    futureTemp3h: isTargetDateToday ? nowcasting?.futureHours?.[2]?.temp : undefined,
+    futureTemp4h: isTargetDateToday ? nowcasting?.futureHours?.[3]?.temp : undefined,
+    futureTemp5h: isTargetDateToday ? nowcasting?.futureHours?.[4]?.temp : undefined,
+    futureTemp6h: isTargetDateToday ? nowcasting?.futureHours?.[5]?.temp : undefined,
     learnedPeakWindowStartHour: learnedPeakWindow?.startHour,
     learnedPeakWindowEndHour: learnedPeakWindow?.endHour,
     currentTemp: modelCurrentTemp,
-    maxTempSoFar: mostLikelyInteger,
+    // Keep decision forecast anchor aligned with model panel (fused settlement anchor),
+    // instead of using post-constraint most-likely integer from distribution.
+    maxTempSoFar: modelMaxTemp,
     tempRise1h: modelTempRise1h,
     tempRise2h: modelTempRise2h,
     tempRise3h: modelTempRise3h,
@@ -712,33 +963,87 @@ export async function runModelAndDecision(
     totalCapital,
     maxSingleTradePercent
   });
-  const alignmentGatedDecision = enforceDateAlignmentGate(decision, market.targetDate, weather.rawJson);
+  const alignmentGatedDecision = enforceDateAlignmentGate(decision, market.targetDate, weather.rawJson, resolved.timezone);
   const freshnessGatedDecision = enforceWeatherFreshnessGate(alignmentGatedDecision, weather.rawJson);
   const strictDecision = enforceStrictWeatherSourceGate(freshnessGatedDecision, weather.rawJson);
+  const wuFutureGatedDecision = enforceWuFutureHoursGate(strictDecision, {
+    isTargetDateToday,
+    nowcastingFutureHours: nowcasting?.futureHours ?? []
+  });
+  // Build certainty explanation after trading decision is finalized.
+  // v1 contract boundary:
+  // Keep this strictly observational (UI/debug/analysis only) and never
+  // feed certaintySummary back into BUY/WATCH/PASS hard rules.
+  const certaintySummary = summarizeCertainty({
+    maxModelProb,
+    lowerBound: probabilityOutput.debugSummary.L,
+    upperBound: probabilityOutput.debugSummary.U,
+    observedMax: isTargetDateToday ? (todayMaxTempStable ?? null) : null,
+    currentTemp: isTargetDateToday ? (modelCurrentTemp ?? null) : null,
+    remainingCap: isTargetDateToday ? constraints.maxPotentialRise : undefined,
+    spreadSigmaRaw: liveAdapted.debug.spreadSigmaRaw
+  });
   const finalDecision = {
-    ...strictDecision,
+    ...wuFutureGatedDecision,
     decisionMode: 'realtime' as const,
     isDailyOfficial: false,
-    dailyDateKey: shanghaiDateKey(new Date()),
+    dailyDateKey: localDateKey(new Date(), resolved.timezone),
     reasonMeta: {
-      ...(strictDecision as unknown as { reasonMeta?: Record<string, unknown> }).reasonMeta,
+      ...(wuFutureGatedDecision as unknown as { reasonMeta?: Record<string, unknown> }).reasonMeta,
+      certaintySummary,
       realtimeDebug: {
         snapshotTime: liveAdapted.engineInput.snapshotTime,
         snapshotBucket: liveAdapted.engineInput.snapshotBucket,
         mu: liveAdapted.debug.mu,
         sigmaBase: liveAdapted.debug.sigmaBase,
         spreadSigmaRaw: liveAdapted.debug.spreadSigmaRaw,
-        spreadSigma: liveAdapted.debug.spreadSigma,
+        spreadSigmaEffective: liveAdapted.debug.spreadSigmaEffective,
         lambda: liveAdapted.debug.lambda,
         finalSigma: liveAdapted.debug.finalSigma,
+        sigmaNarrowFloor: liveAdapted.debug.sigmaNarrowFloor,
+        constraintIntervalWidth: liveAdapted.debug.constraintIntervalWidth ?? null,
         configSource: liveAdapted.debug.configSource,
         sourceWeightFallbackUsed: liveAdapted.debug.sourceWeightFallbackUsed,
-        observedMaxSoFar: todayMaxTemp ?? null,
+        spreadSourcePoints: liveAdapted.debug.sourcePoints,
+        spreadRemovedSources: liveAdapted.debug.removedSources,
+        locationKey: resolved.locationKey,
+        targetDate: resolved.targetDate,
+        isTargetDateToday: resolved.isTargetDateToday,
+        isFutureDate: resolved.isFutureDate,
+        dayOffset: resolved.dayOffset,
+        observedMaxSoFar: todayMaxTempStable ?? null,
+        observedMaxCandidates: observedMaxCandidates.length ? observedMaxCandidates : null,
+        observedMaxSource,
         remainingCap: constraints.maxPotentialRise,
-        remainingCapSource: 'heuristic_realtime_v1',
+        remainingCapSource: constraints.debugSummary.remainingCapSource ?? 'heuristic_realtime_v1',
+        hoursToPeak: constraints.debugSummary.hoursToPeak ?? null,
+        hoursToPeakBucket: constraints.debugSummary.hoursToPeakBucket ?? null,
+        observedVsMuGap: constraints.debugSummary.observedVsMuGap ?? null,
+        observedVsMuGapBucket: constraints.debugSummary.observedVsMuGapBucket ?? null,
+        deltaDistributionKey: constraints.debugSummary.deltaDistributionKey ?? null,
+        deltaMean: constraints.debugSummary.deltaMean ?? null,
+        deltaStd: constraints.debugSummary.deltaStd ?? null,
+        deltaQ50: constraints.debugSummary.deltaQ50 ?? null,
+        deltaQ75: constraints.debugSummary.deltaQ75 ?? null,
+        deltaQ90: constraints.debugSummary.deltaQ90 ?? null,
+        deltaQ95: constraints.debugSummary.deltaQ95 ?? null,
+        upperSupportLow: constraints.debugSummary.upperSupportLow ?? null,
+        upperSupportHigh: constraints.debugSummary.upperSupportHigh ?? null,
+        remainingCapFinal: constraints.debugSummary.remainingCapFinal ?? null,
         maxFutureTemp: constraints.debugSummary.maxFutureTemp ?? null,
-        maxContinuous: constraints.maxContinuous ?? null,
+        maxContinuousRaw: constraints.maxContinuous ?? null,
+        maxContinuous: maxContinuousForEngine ?? null,
+        upperBoundStabilization,
         finalU: probabilityOutput.debugSummary.U ?? null,
+        certaintyType: certaintySummary.certaintyType,
+        isStructuralCertainty: certaintySummary.isStructuralCertainty,
+        structuralReasons: certaintySummary.structuralReasons,
+        certaintySummaryZh: certaintySummary.summaryZh,
+        certaintySummaryEn: certaintySummary.summaryEn,
+        mostLikelyInteger,
+        mostLikelyIntegerProbability: mostLikelyInteger != null
+          ? integerDistribution.find((d) => d.temp === mostLikelyInteger)?.probability ?? null
+          : null,
         p13: probByLabel.get('13°C') ?? null,
         p14: probByLabel.get('14°C') ?? null,
         p15: probByLabel.get('15°C') ?? null
@@ -749,7 +1054,7 @@ export async function runModelAndDecision(
   const modelRun = await prisma.modelRun.create({
     data: {
       marketId: market.id,
-      modelVersion: MODEL_VERSION,
+      modelVersion: MODEL_BASELINE_VERSION,
       bestBin: finalDecision.recommendedBin,
       edge: finalDecision.edge,
       tradeScore: finalDecision.tradeScore,
@@ -763,7 +1068,25 @@ export async function runModelAndDecision(
       rawFeaturesJson: toJsonString({
         currentTemp: modelCurrentTemp,
         maxTempSoFar: modelMaxTemp,
-        todayMaxTemp,
+        todayMaxTemp: todayMaxTempStable,
+        observedMaxSource,
+        observedMaxCandidates,
+        // Short-term future temperatures are persisted for same-run explain/debug.
+        // These fields are sourced from nowcasting.futureHours (when available)
+        // and are not used to shape mu/sigma directly.
+        futureTemp1h: isTargetDateToday ? (nowcasting?.futureHours?.[0]?.temp ?? null) : null,
+        futureTemp2h: isTargetDateToday ? (nowcasting?.futureHours?.[1]?.temp ?? null) : null,
+        futureTemp3h: isTargetDateToday ? (nowcasting?.futureHours?.[2]?.temp ?? null) : null,
+        futureTemp4h: isTargetDateToday ? (nowcasting?.futureHours?.[3]?.temp ?? null) : null,
+        futureTemp5h: isTargetDateToday ? (nowcasting?.futureHours?.[4]?.temp ?? null) : null,
+        futureTemp6h: isTargetDateToday ? (nowcasting?.futureHours?.[5]?.temp ?? null) : null,
+        futureTemp7h: isTargetDateToday ? (nowcasting?.futureHours?.[6]?.temp ?? null) : null,
+        futureTemp8h: isTargetDateToday ? (nowcasting?.futureHours?.[7]?.temp ?? null) : null,
+        futureTemp9h: isTargetDateToday ? (nowcasting?.futureHours?.[8]?.temp ?? null) : null,
+        futureTemp10h: isTargetDateToday ? (nowcasting?.futureHours?.[9]?.temp ?? null) : null,
+        futureTemp11h: isTargetDateToday ? (nowcasting?.futureHours?.[10]?.temp ?? null) : null,
+        futureTemp12h: isTargetDateToday ? (nowcasting?.futureHours?.[11]?.temp ?? null) : null,
+        nowcasting: weatherRaw.raw?.nowcasting ?? null,
         isTargetDateToday,
         recommendedSide: finalDecision.recommendedSide,
         reasonZh: finalDecision.reasonZh,
@@ -778,15 +1101,28 @@ export async function runModelAndDecision(
         mostLikelyInteger,
         modelSigma: liveAdapted.debug.finalSigma,
         distributionDebug,
+        certaintySummary: (finalDecision as unknown as { reasonMeta?: { certaintySummary?: unknown } }).reasonMeta?.certaintySummary ?? null,
         realtimeDebug: (finalDecision as unknown as { reasonMeta?: { realtimeDebug?: unknown } }).reasonMeta?.realtimeDebug ?? null,
         sourceCalibration: biasAdjusted?.breakdown ?? [],
         dailyDecision: {
           mode: 'realtime',
           isOfficial: false,
-          dateKey: shanghaiDateKey(new Date()),
+          dateKey: localDateKey(new Date(), resolved.timezone),
           lockAt: null
         },
+        requestContext: {
+          locationKey: resolved.locationKey,
+          targetDate: resolved.targetDate,
+          isTargetDateToday: resolved.isTargetDateToday,
+          isFutureDate: resolved.isFutureDate,
+          dayOffset: resolved.dayOffset
+        },
         constraints,
+        constraintsForEngine: {
+          ...constraints,
+          maxContinuous: maxContinuousForEngine,
+          maxAllowedInteger
+        },
         note:
           'Calibration/backtest modules remain decoupled from realtime pipeline in v1. This run uses structural truncated-normal constraints only.'
       }),
@@ -831,19 +1167,20 @@ export async function runModelAndDecision(
   return { market, weather, modelRun, decision: finalDecision };
 }
 
-export async function runFullRefresh(targetDateKey?: string | null) {
+export async function runFullRefresh(request?: PipelineRequest) {
   const totalCapital = Number(process.env.TOTAL_CAPITAL ?? '10000');
   const maxSingleTradePercent = Number(process.env.MAX_SINGLE_TRADE_PERCENT ?? '0.1');
-  await refreshMarketData(targetDateKey);
-  await refreshWeatherData(targetDateKey);
-  const result = await runModelAndDecision(totalCapital, maxSingleTradePercent, targetDateKey);
+  await refreshMarketData(request);
+  await refreshWeatherData(request);
+  const result = await runModelAndDecision(totalCapital, maxSingleTradePercent, request);
   await syncSettledResults();
   return result;
 }
 
 export async function syncSettledResults() {
+  // v1 baseline settlement sync remains Shanghai-only.
   const markets = await prisma.market.findMany({
-    where: { ...SHANGHAI_TEMP_MARKET_WHERE, targetDate: { lt: new Date() } },
+    where: { ...marketWhereByLocation('shanghai'), targetDate: { lt: new Date() } },
     include: {
       bins: { orderBy: { outcomeIndex: 'asc' } },
       resolutionMetadata: true,
@@ -899,7 +1236,7 @@ export async function syncSettledResults() {
       where: { id: market.id },
       data: { isActive: false }
     });
-    await recordForecastBiasFromPreviousDay(market.id, market.targetDate, roundedFinalTemp);
+    await recordForecastBiasFromPreviousDay(market.id, market.targetDate, roundedFinalTemp, 'Asia/Shanghai');
 
     synced.push({
       marketSlug: market.marketSlug,

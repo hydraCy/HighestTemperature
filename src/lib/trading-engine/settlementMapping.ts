@@ -34,6 +34,12 @@ export function buildIntegerSettlementDistribution(params: {
   maxAllowedInteger?: number;
   sigmaBelowMean?: number;
   sigmaAboveMean?: number;
+  deltaConstraint?: {
+    observedMax: number;
+    deltaMean: number;
+    deltaStd: number;
+    deltaUpper: number;
+  };
 }): IntegerProbability[] {
   const minTemp = Number.isFinite(params.minTemp) ? Math.floor(Number(params.minTemp)) : 0;
   const maxTemp = Number.isFinite(params.maxTemp) ? Math.ceil(Number(params.maxTemp)) : 45;
@@ -66,6 +72,34 @@ export function buildIntegerSettlementDistribution(params: {
         upper
       )
     });
+  }
+
+  // Soft constraint fusion:
+  // baseDensity (daily fused distribution) * deltaDensity (intraday reachable delta distribution)
+  // where delta = T* - observedMax. This avoids relying only on a single hard cap U.
+  if (
+    params.deltaConstraint &&
+    Number.isFinite(params.deltaConstraint.observedMax) &&
+    Number.isFinite(params.deltaConstraint.deltaMean) &&
+    Number.isFinite(params.deltaConstraint.deltaStd) &&
+    Number.isFinite(params.deltaConstraint.deltaUpper) &&
+    params.deltaConstraint.deltaUpper > 0
+  ) {
+    const d = params.deltaConstraint;
+    for (const row of rows) {
+      if (row.probability <= 0) continue;
+      const da = row.temp - 0.5 - d.observedMax;
+      const db = row.temp + 0.5 - d.observedMax;
+      const deltaWeight = truncatedNormalIntervalProbability(
+        da,
+        db,
+        d.deltaMean,
+        Math.max(0.2, d.deltaStd),
+        0,
+        d.deltaUpper
+      );
+      row.probability *= Math.max(0, deltaWeight);
+    }
   }
   // This distribution is built from a truncated continuous density:
   // 1) compute per-integer settlement interval mass in continuous space

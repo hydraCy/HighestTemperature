@@ -43,13 +43,19 @@ export function runBacktest(
   const warnings: string[] = [];
 
   const probRows: number[][] = [];
+  const probRowsLegacy: number[][] = [];
   const actualIndices: number[] = [];
+  const actualIndicesLegacy: number[] = [];
   const calibrationRows: { confidence: number; hit: boolean }[] = [];
   const checks: BacktestResult['distributionChecks'] = [];
   const sigmas: number[] = [];
   const spreads: number[] = [];
   const trades: BacktestResult['trades'] = [];
   const sampleDistributions: BacktestResult['sampleDistributions'] = [];
+  let over90LegacyCount = 0;
+  let over90NewCount = 0;
+  let p15LegacyPositiveCount = 0;
+  let p15NewPositiveCount = 0;
 
   for (const row of dataset) {
     bucketCounts[row.snapshotBucket] += 1;
@@ -72,7 +78,17 @@ export function runBacktest(
       calibrationTables: {
         baseSigma: tables.baseSigma,
         sourceWeights: tables.sourceWeights as Record<string, Record<string, number>>,
-        remainingCaps: tables.remainingCaps as Record<string, { q90?: number }>
+        remainingCaps: tables.remainingCaps as Record<string, { q90?: number }>,
+        remainingCapDistributions: tables.remainingCapDistributions as Record<string, {
+          q25: number;
+          q50: number;
+          q75: number;
+          q90: number;
+          q95: number;
+          mean: number;
+          std: number;
+          count: number;
+        }>
       },
       minTemp,
       maxTemp
@@ -83,7 +99,15 @@ export function runBacktest(
     const probabilityOutput = runProbabilityEngine({
       ...adapted.engineInput
     });
+    const legacyOutput = runProbabilityEngine({
+      ...adapted.engineInput,
+      distribution: {
+        ...adapted.engineInput.distribution,
+        deltaConstraint: undefined
+      }
+    });
     const integerDist = probabilityOutput.integerDistribution;
+    const integerDistLegacy = legacyOutput.integerDistribution;
     const binProbs = probabilityOutput.binProbabilities;
     sampleDistributions.push({
       targetDate: row.targetDate,
@@ -117,12 +141,20 @@ export function runBacktest(
     );
 
     const probs = integerDist.map((x) => x.probability);
+    const probsLegacy = integerDistLegacy.map((x) => x.probability);
     const labels = integerDist.map((x) => x.temp);
     const actual = nearestIntegerForRound(row.finalMaxTemp);
     const actualIndex = labels.indexOf(actual);
     if (actualIndex < 0) continue;
     probRows.push(probs);
+    probRowsLegacy.push(probsLegacy);
     actualIndices.push(actualIndex);
+    actualIndicesLegacy.push(actualIndex);
+
+    if (Math.max(...probs) > 0.9) over90NewCount += 1;
+    if (Math.max(...probsLegacy) > 0.9) over90LegacyCount += 1;
+    if ((integerDist.find((x) => x.temp === 15)?.probability ?? 0) > 0) p15NewPositiveCount += 1;
+    if ((integerDistLegacy.find((x) => x.temp === 15)?.probability ?? 0) > 0) p15LegacyPositiveCount += 1;
 
     const top = [...integerDist].sort((a, b) => b.probability - a.probability)[0]!;
     calibrationRows.push({
@@ -207,6 +239,20 @@ export function runBacktest(
         passedChecks,
         failedChecks,
         passRate: totalChecks > 0 ? passedChecks / totalChecks : 0
+      },
+      capModelComparison: {
+        legacySingleCap: {
+          brier: brierScoreMulticlass(probRowsLegacy, actualIndicesLegacy),
+          logloss: logLossMulticlass(probRowsLegacy, actualIndicesLegacy),
+          over90Count: over90LegacyCount,
+          p15PositiveCount: p15LegacyPositiveCount
+        },
+        distributionCap: {
+          brier: brierScoreMulticlass(probRows, actualIndices),
+          logloss: logLossMulticlass(probRows, actualIndices),
+          over90Count: over90NewCount,
+          p15PositiveCount: p15NewPositiveCount
+        }
       }
     },
     trades,
