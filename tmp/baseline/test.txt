@@ -1,0 +1,54 @@
+
+> polymarket-shanghai-decision-platform@0.1.0 test
+> tsx --test tests/*.test.ts
+
+✔ acceptance: observedMax=12 and q90 cap=2 should only allow 12/13/14 (0.951583ms)
+✔ calibration tables should produce base sigma, source weights and remaining caps (0.772875ms)
+✔ runBacktest should return metrics, calibration curve and legal distribution checks (2.440458ms)
+✔ demo dataset should run end-to-end with loader + calibration + backtest (11.340541ms)
+✔ expanded dataset should exceed 200 rows and produce stable calibration outputs (17.377791ms)
+✔ small-sample calibration should smooth instead of hard fallback collapse (0.237875ms)
+✔ risk modifier and position sizing (0.460333ms)
+✔ trading decision output structure (24.696083ms)
+✔ settled market should force PASS and zero position (0.415584ms)
+✔ late-session lock should avoid contrarian 13C NO recommendation (0.702875ms)
+✔ should not recommend NO side when NO executable price is missing (0.371375ms)
+✔ global mutually-exclusive constraint should force only target-bin YES (0.340292ms)
+✔ strong market consensus conflict should downgrade BUY to WATCH (0.281417ms)
+✔ second-entry guard should tighten threshold and block marginal trade (0.225333ms)
+✔ strict source gate should force PASS when strictReady=false (0.501542ms)
+✔ freshness gate should force PASS when data stale (25.927917ms)
+✔ date alignment gate should force PASS when weather target date mismatches market (8.901583ms)
+✔ fusion engine normalizes weights and outcome probabilities (1.071792ms)
+✔ fusion engine applies time-regime weighting near peak window (0.128583ms)
+✔ model panel forecast must come only from sourceDailyMax (0.612167ms)
+✔ model panel forecast should not fallback when sourceDailyMax missing (0.057875ms)
+✔ flat next 1-3h forecast should suppress unrealistic high-tail bins (2.214667ms)
+✔ stage1 acceptance: observed floor and continuous upper bound must hard-constrain distribution (1.156083ms)
+✔ stage1 narrow interval: lower=13.9 and upper=14.0 should concentrate mass in 14 (0.124125ms)
+✔ edge calculation (0.387625ms)
+✔ timing score window (0.0775ms)
+✔ weather and data quality score (0.108709ms)
+✔ integer settlement mapping builds normalized distribution and maps to bins (1.432291ms)
+✔ observed max hard floor should zero out impossible lower integers (0.109833ms)
+✔ hard ceiling should zero out impossible higher integers (0.064917ms)
+✔ asymmetric sigma should reduce left-tail mass before peak (0.177875ms)
+✔ today constrained case should keep mass only in feasible integer buckets (0.0875ms)
+✔ non-today without continuous bounds should behave like unconstrained normal mapping (0.098292ms)
+✔ late session should use tighter integer ceiling when stricter than general upper bound (0.238833ms)
+✔ today cap should use calibrated quantile instead of hard early floor (0.058042ms)
+✔ extremely narrow continuous interval should concentrate almost all mass in 14C bucket (0.224042ms)
+✔ reachability floor is diagnostics-only and does not hard-bind v1 probability engine (0.268583ms)
+✔ distribution debug summary should expose active integers and model tag (0.113708ms)
+✔ source policy: classification and base weights (0.811292ms)
+✔ source policy: station matching and freshness/health scores (0.12725ms)
+✔ bin parsing works (0.469292ms)
+✔ probabilities normalize to 1 (0.108125ms)
+ℹ tests 42
+ℹ suites 0
+ℹ pass 42
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 500.575875

@@ -109,5 +109,9 @@ export type ProbabilityEngineOutput = {
       deltaUpper?: number;
       source?: 'distribution' | 'distribution_fallback' | 'none';
     };
+    luInvariant: {
+      isValid: boolean;
+      issues: string[];
+    };
   };
 };

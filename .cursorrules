@@ -1,0 +1,403 @@
+# Shanghai Weather Trading Project Rules
+
+## 0. Project goal
+This project is a weather-based trading decision system.
+The highest priority is correctness, consistency, and explainability.
+Do not optimize for cleverness. Optimize for stability and debuggability.
+
+Core principles:
+- Preserve the current stable baseline unless explicitly asked to change it.
+- Prefer small, traceable fixes over broad rewrites.
+- Keep model logic, decision logic, and UI display logic separated.
+- Every non-trivial change must be explainable with before/after behavior.
+
+---
+
+## 1. Baseline protection
+Current stable baseline:
+- Certainty Contract v1
+- Shanghai Rule Baseline v1
+
+Never silently change:
+- CertaintySummary field names or semantics
+- probability model meaning
+- decision thresholds
+- output contract used by page/debug/scripts
+
+If a task requires changing semantics, do not patch in place.
+Instead:
+1. explain what contract would change
+2. propose versioned change
+3. preserve backward compatibility where possible
+
+---
+
+## 2. Architecture boundaries
+Respect these boundaries strictly:
+
+### Probability engine
+Responsible only for:
+- fused forecast distribution
+- constraints
+- integer/bin probabilities
+
+Must remain pure and deterministic.
+Do not make it depend on page state, UI wording, or ad-hoc service logic.
+
+### Decision layer
+Responsible only for:
+- best candidate
+- final action (BUY / WATCH / PASS)
+- edge / confidence / score
+
+Do not mix decision logic into UI formatting.
+
+### Explainability layer
+Responsible only for:
+- CertaintySummary
+- debug summaries
+- human-readable explanations
+
+Do not use explainability fields as hard trading rules unless explicitly requested.
+
+### UI layer
+Responsible only for:
+- displaying already computed results
+- distinguishing between final decision and candidate opportunity
+- avoiding misleading wording
+
+Do not recompute probability or decision rules in the page.
+
+---
+
+## 3. Source hierarchy
+Treat weather sources as different classes:
+
+### Settlement-critical source
+- Wunderground is settlement-critical for Polymarket settlement interpretation.
+
+### Supporting forecast sources
+- WeatherAPI
+- met.no
+- AviationWeather
+- wttr
+- others
+
+Rules:
+- Never treat Wunderground failure as equal to a normal auxiliary source failure.
+- If settlement-critical source is unavailable, system must enter degraded settlement mode.
+- In degraded mode, predictions may continue, but confidence/explanation must reflect that the settlement-critical source is unavailable.
+
+---
+
+## 4. Degraded mode rules
+When Wunderground is unavailable, blocked, unauthorized, or region-restricted:
+- set hasSettlementSource = false
+- set degradedSettlementMode = true
+- expose settlementSourceStatus and settlementSourceReason
+- clearly mark the run as proxy/indirect settlement estimate
+
+Do not pretend the main settlement source is healthy.
+Do not silently substitute auxiliary sources as equivalent truth.
+
+---
+
+## 5. Rules for modifying model logic
+Before changing any model-related logic, first identify which layer is actually wrong:
+
+- source input issue
+- parsing issue
+- persistence issue
+- adapter mapping issue
+- constraint issue
+- probability issue
+- decision issue
+- display issue
+
+Never jump to changing the model first.
+
+For any model-related fix:
+1. print the relevant chain
+2. identify the narrowest faulty layer
+3. fix only that layer
+4. provide before/after comparison
+
+Required debug fields for model investigations:
+- locationKey
+- targetDate
+- isTargetDateToday
+- isFutureDate
+- dayOffset
+- snapshotTime
+- snapshotBucket
+- fusedContinuous
+- fusedAnchor
+- mu
+- sigmaBase
+- spreadSigmaRaw
+- spreadSigmaEffective
+- finalSigma
+- observedMaxSoFar
+- currentTemp
+- remainingCap or delta-distribution summary
+- finalL
+- finalU
+- integer probabilities around peak bins
+
+---
+
+## 6. Constraints rules
+Constraints must be treated as a modeling layer, not a hard-coded hack layer.
+
+Do not use crude fixed floors like:
+- earlyRelaxFloor = 4 / 5 / 6
+unless explicitly requested for a temporary patch.
+
+Prefer:
+- time-to-peak
+- historical calibration tables
+- conditional delta distribution
+- observed-vs-mu gap
+- weather-condition soft adjustment
+
+For today:
+- observed floor is allowed
+- intraday constraints are allowed
+- but their strength must vary by time-of-day
+
+For future dates:
+- do not use today-only observed floor logic
+- do not use today intraday remainingCap logic
+- fall back to forecast-driven logic
+
+---
+
+## 7. Remaining-cap / delta modeling rules
+The preferred direction is:
+- do not model a single hard remainingCap
+- model delta = finalMaxTemp - observedMaxSoFar from historical calibration
+
+Preferred implementation order:
+1. use calibrated quantiles by bucket
+2. then use conditional delta distribution
+3. only use hand-written fallbacks as temporary fallback paths
+
+Whenever changing delta/remaining-cap logic:
+- keep before/after examples
+- compare early-hour behavior
+- compare right-tail behavior
+- check overconfidence count
+
+---
+
+## 8. Confidence and certainty rules
+Distinguish clearly between:
+- structural certainty
+- model-driven confidence
+- mixed certainty
+
+Rules:
+- CertaintySummary is explainability, not a trading rule
+- High probability is allowed only if it is explainable
+- If high confidence is not structural, investigate the model
+- If high confidence is structural, explain why clearly
+
+Never display a 100% number in a misleading way.
+If probability refers to NO side, make that explicit.
+Use wording like:
+- YES x% / NO y%
+- recommended side probability: y%
+
+---
+
+## 9. UI wording rules
+UI must prioritize decision clarity over debug density.
+
+Never allow wording that can confuse:
+- short-term 1–6h peak
+- full-day settlement forecast
+- candidate opportunity
+- final action
+
+Specific UI rules:
+- If final action is PASS, do not present candidate bin as a strong recommendation.
+- Distinguish:
+  - final action
+  - best candidate
+  - explanatory signals
+- Short-term future hours are not full-day settlement forecast.
+- If short-term data is absent, do not fabricate or infer a "future 1–6h peak" from currentTemp or observedMax.
+
+Use language that reflects source and meaning.
+Bad:
+- "model forecast 8°C" when it is only short-term peak
+Better:
+- "short-term reference (next 1–6h)"
+- "not full-day settlement forecast"
+
+---
+
+## 10. Debugging workflow
+For any bug:
+1. reproduce using one concrete sample
+2. print full chain
+3. identify exact contradiction
+4. fix one layer only
+5. rerun same sample
+6. provide before/after output
+
+When investigating historical issues:
+- compare last successful run vs first failed run
+- compare request params
+- compare source status
+- compare persistence fields
+- compare derived probabilities
+
+Do not say "probably" when logs can prove it.
+
+---
+
+## 11. Source integration rules
+For external weather source issues:
+- classify failure precisely:
+  - auth_error
+  - blocked
+  - region_restricted
+  - network_error
+  - parse_error
+  - empty_payload
+  - config_missing
+- do not label everything as fetch_error
+- preserve raw evidence where safe:
+  - status code
+  - response snippet
+  - parser result
+
+For experimental source workarounds:
+- isolate in scripts/
+- never quietly move experimental scraping into production pipeline
+- never make unstable unofficial extraction the default source of truth
+
+---
+
+## 12. Persistence rules
+Whenever a field is used by page/debug/scripts, ensure it is actually persisted.
+Do not assume page can read what pipeline never writes.
+
+When fixing persistence:
+- explicitly list missing fields
+- add them to rawFeaturesJson / reasonMeta / outputs where appropriate
+- verify with a fresh run
+
+---
+
+## 13. Testing rules
+Every non-trivial bug fix should add or update a focused test.
+
+Priority test types:
+1. single-sample contradiction tests
+2. constraint legality tests
+3. source degradation tests
+4. display consistency tests
+5. persistence continuity tests
+
+For constraint bugs, test:
+- early hour today
+- near-peak hour
+- future date
+- settlement source unavailable mode
+
+For UI binding bugs, test:
+- same-run consistency
+- decision vs explanation alignment
+- candidate vs final action wording
+
+---
+
+## 14. Backtest / calibration rules
+Do not treat demo output as real validation.
+Always note sample size and whether result is statistically meaningful.
+
+When touching calibration:
+- print bucket counts
+- print fallback/smoothing usage
+- print parameter source
+- never hide low-sample behavior
+
+Preferred evaluation metrics:
+- Brier
+- LogLoss
+- calibration curve
+- overconfidence counts
+- structural vs non-structural high-confidence counts
+
+---
+
+## 15. Multi-location / multi-date expansion rules
+All new expansion must be parameterized, not hard-coded.
+
+Use:
+- locationKey
+- targetDate
+
+Never build:
+- separate today pipeline
+- separate tomorrow pipeline
+- separate shanghai-only special path
+unless absolutely necessary and explicitly justified
+
+For date handling:
+- derive isTargetDateToday
+- derive isFutureDate
+- derive dayOffset
+
+For location handling:
+- use location config
+- do not hard-code city names, coordinates, station ids inside services
+
+---
+
+## 16. Code change style
+Preferred style:
+- minimal surface-area change
+- strong comments at boundaries
+- preserve existing semantics unless task explicitly changes them
+- add debug fields when changing behavior
+- avoid giant rewrites
+
+When editing:
+- explain what changed
+- explain why the old behavior was wrong
+- show before/after example
+- identify any remaining risk
+
+---
+
+## 17. What to avoid
+Never:
+- silently change contracts
+- silently repurpose existing fields
+- mix snapshot and run explanations without labeling
+- display one run’s decision with another run’s explanation
+- use unsupported short-term data as if it were settlement forecast
+- overfit UI wording to one sample
+- use broad hard-coded heuristics when calibrated data already exists
+
+---
+
+## 18. Expected answer style
+When asked to fix something:
+- first identify the exact layer
+- then state the concrete cause
+- then propose the smallest correct fix
+- then list files to change
+- then show before/after behavior
+
+When asked to add a feature:
+- preserve baseline defaults
+- make new params optional
+- keep backward-compatible behavior
+
+When uncertain:
+- surface the uncertainty explicitly
+- print the exact missing evidence needed

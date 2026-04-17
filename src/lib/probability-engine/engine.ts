@@ -3,6 +3,7 @@ import {
   buildIntegerSettlementDistribution,
   mapIntegerDistributionToBins
 } from '@/src/lib/trading-engine/settlementMapping';
+import { evaluateLuInvariants } from '@/src/lib/probability-engine/lu-invariants';
 
 export function runProbabilityEngine(input: ProbabilityEngineInput): ProbabilityEngineOutput {
   // Probability engine contract:
@@ -25,6 +26,12 @@ export function runProbabilityEngine(input: ProbabilityEngineInput): Probability
       sigmaAboveMean: input.sigmaAboveMean
     };
   const binLabels = unifiedMode ? input.marketBins.map((b) => b.label) : input.binLabels;
+  const luInvariant = evaluateLuInvariants({
+    lower: dist.minContinuous,
+    upper: dist.maxContinuous,
+    minAllowedInteger: dist.minAllowedInteger,
+    maxAllowedInteger: dist.maxAllowedInteger
+  });
 
   const integerDistribution = buildIntegerSettlementDistribution({
     mean: dist.mu,
@@ -73,7 +80,8 @@ export function runProbabilityEngine(input: ProbabilityEngineInput): Probability
       snapshotBucket: unifiedMode ? input.snapshotBucket : undefined,
       calibration: unifiedMode ? input.calibration : undefined
       ,
-      deltaConstraint: unifiedMode ? input.distribution.deltaConstraint : undefined
+      deltaConstraint: unifiedMode ? input.distribution.deltaConstraint : undefined,
+      luInvariant
     }
   };
 }

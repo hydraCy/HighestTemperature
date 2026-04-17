@@ -53,7 +53,7 @@ export async function getDashboardData(targetDateKey?: string, locationKey: Supp
   const cfg = getLocationConfig(locationKey);
   const whereByLocation = marketWhereByLocation(locationKey);
   const dayRange = localDayRange(targetDateKey, cfg.timezone);
-  const market = await prisma.market.findFirst({
+  const findArgs = {
     where: {
       ...whereByLocation,
       ...(dayRange ? { targetDate: dayRange } : {})
@@ -68,9 +68,35 @@ export async function getDashboardData(targetDateKey?: string, locationKey: Supp
       notes: { orderBy: { createdAt: 'desc' }, take: 20 }
     },
     orderBy: [{ isActive: 'desc' }, { targetDate: 'desc' }, { updatedAt: 'desc' }]
-  });
+  } as const;
+  let market = await prisma.market.findFirst(findArgs);
+
+  // If caller pins a specific date but no market exists for that date yet,
+  // fallback to the latest available market for the same location to avoid empty page.
+  if (!market && dayRange) {
+    market = await prisma.market.findFirst({
+      ...findArgs,
+      where: {
+        ...whereByLocation
+      }
+    });
+  }
 
   if (!market) return null;
+  const requestedDateKey = targetDateKey ?? null;
+  const effectiveDateKey = (() => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: cfg.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(market.targetDate);
+    const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '00';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '00';
+    return `${y}-${m}-${d}`;
+  })();
+  const fallbackFromRequestedDate = Boolean(requestedDateKey && requestedDateKey !== effectiveDateKey);
 
   const latestRun = market.modelRuns[0] ?? null;
   const latestWeather = market.weatherSnapshots[0] ?? null;
@@ -94,6 +120,9 @@ export async function getDashboardData(targetDateKey?: string, locationKey: Supp
     latestWeather,
     marketSource: fromJsonString<{ source?: string }>(market.rawJson, {}).source ?? 'unknown',
     weatherSource: fromJsonString<{ source?: string }>(latestWeather?.rawJson, {}).source ?? 'unknown',
+    requestedDateKey,
+    effectiveDateKey,
+    fallbackFromRequestedDate,
     latestDecision: latestRun
       ? {
           reasonMeta: fromJsonString<{ reasonZh?: string; reasonEn?: string; recommendedSide?: string }>(latestRun.rawFeaturesJson, {}),

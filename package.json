@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "sh -c 'npm run job:once -- all || true; next dev'",
+    "dev": "sh -c 'npm run job:once -- startup || true; npm run job:once -- settled >/tmp/shanghai-settled.log 2>&1 & next dev'",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -19,6 +19,7 @@
     "realtime:stability": "tsx scripts/run-realtime-stability.ts",
     "realtime:stability:diverse": "tsx scripts/run-realtime-stability-diverse.ts",
     "source:diagnostics": "tsx scripts/run-source-diagnostics.ts",
+    "baseline:verify": "tsx scripts/verify-golden-baseline.ts",
     "wu:key:refresh": "tsx scripts/refresh-wu-apikey.ts",
     "compare:openmeteo-wu": "tsx scripts/compare-openmeteo-wunderground.ts",
     "test": "tsx --test tests/*.test.ts",

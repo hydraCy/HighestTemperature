@@ -87,6 +87,10 @@ export async function fetchShanghaiMarket(
         errors.push(`${url} -> 未找到上海最高温盘口`);
       } catch (err) {
         errors.push(`${url} -> ${formatFetchError(err)}`);
+        if (isDnsResolutionError(err)) {
+          errors.push('Polymarket host DNS resolution failed, aborting remaining URLs to avoid long hangs.');
+          break;
+        }
       }
     }
 
@@ -303,13 +307,36 @@ function clampOptional01(x: number | undefined) {
 
 function formatFetchError(error: unknown): string {
   if (!(error instanceof Error)) return 'unknown error';
+  const category = classifyFetchError(error);
   const cause = error.cause as
     | { code?: string; errno?: number | string; syscall?: string; address?: string; port?: number }
     | undefined;
   const causePart = cause
     ? ` cause(code=${cause.code ?? '-'}, errno=${cause.errno ?? '-'}, syscall=${cause.syscall ?? '-'}, address=${cause.address ?? '-'}, port=${cause.port ?? '-'})`
     : '';
-  return `${error.message}${causePart}`;
+  return `[${category}] ${error.message}${causePart}`;
+}
+
+function classifyFetchError(error: Error): 'dns_error' | 'tls_error' | 'timeout_error' | 'network_error' | 'unknown_error' {
+  const m = error.message.toLowerCase();
+  if (m.includes('curl: (6)') || m.includes('could not resolve host') || m.includes('enotfound') || m.includes('getaddrinfo')) {
+    return 'dns_error';
+  }
+  if (m.includes('curl: (35)') || m.includes('ssl_connect') || m.includes('tls')) {
+    return 'tls_error';
+  }
+  if (m.includes('curl: (28)') || m.includes('timed out') || m.includes('timeout')) {
+    return 'timeout_error';
+  }
+  if (m.includes('econnrefused') || m.includes('network') || m.includes('fetch failed')) {
+    return 'network_error';
+  }
+  return 'unknown_error';
+}
+
+function isDnsResolutionError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return classifyFetchError(error) === 'dns_error';
 }
 
 function isShanghaiTempText(text: string) {

@@ -21,6 +21,7 @@ import type { CertaintyReason, CertaintySummary, CertaintyType } from '@/src/lib
 import { MODEL_BASELINE_VERSION } from '@/src/lib/explainability/baseline';
 import { runTradingDecision } from '@/src/lib/trading-engine/tradingEngine';
 import { parseTemperatureBin } from '@/lib/utils/bin-parsing';
+import { calculateWundergroundFreshnessThresholdMinutes } from '@/src/lib/weather/wunderground-cadence';
 import { Prisma } from '@prisma/client';
 import type { SnapshotBucket } from '@/src/lib/backtest/types';
 import {
@@ -347,10 +348,12 @@ export function enforceStrictWeatherSourceGate(
 
 export function enforceWeatherFreshnessGate(
   decision: ReturnType<typeof runTradingDecision>,
-  weatherRawJson: string | null
+  weatherRawJson: string | null,
+  now = new Date()
 ) {
   const maxStaleMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
   if (!Number.isFinite(maxStaleMinutes) || maxStaleMinutes <= 0) return decision;
+  const cadenceGraceMinutes = Number(process.env.WEATHER_WU_CADENCE_GRACE_MINUTES ?? '4');
 
   const weatherRaw = fromJsonString<{
     raw?: {
@@ -360,17 +363,24 @@ export function enforceWeatherFreshnessGate(
   }>(weatherRawJson, {});
   const fetchedAtIso = weatherRaw.raw?.fetchedAtIso ?? null;
   const observedAtIso = weatherRaw.raw?.nowcasting?.observedAt ?? null;
-  const baselineIso = fetchedAtIso ?? observedAtIso;
+  const baselineIso = observedAtIso ?? fetchedAtIso;
   if (!baselineIso) return decision;
 
   const baseTs = new Date(baselineIso).getTime();
   if (!Number.isFinite(baseTs)) return decision;
-  const staleMinutes = (Date.now() - baseTs) / 60000;
-  if (!Number.isFinite(staleMinutes) || staleMinutes <= maxStaleMinutes) return decision;
+  const staleMinutes = (now.getTime() - baseTs) / 60000;
+  if (!Number.isFinite(staleMinutes)) return decision;
+  const effectiveThreshold = calculateWundergroundFreshnessThresholdMinutes({
+    observedAt: new Date(baseTs),
+    cadenceGraceMinutes,
+    fallbackMaxStaleMinutes: maxStaleMinutes
+  });
+  if (staleMinutes <= effectiveThreshold) return decision;
 
   const staleRounded = Math.round(staleMinutes);
-  const zh = `天气数据新鲜度不足（已过 ${staleRounded} 分钟，阈值 ${maxStaleMinutes} 分钟），系统禁止给出交易推荐，强制 PASS，仓位为 0。`;
-  const en = `Weather data is stale (${staleRounded} min old, threshold ${maxStaleMinutes} min). Trading recommendation is blocked, forced PASS with zero position.`;
+  const thresholdRounded = Math.round(effectiveThreshold);
+  const zh = `天气数据新鲜度不足（已过 ${staleRounded} 分钟，阈值 ${thresholdRounded} 分钟），系统禁止给出交易推荐，强制 PASS，仓位为 0。`;
+  const en = `Weather data is stale (${staleRounded} min old, threshold ${thresholdRounded} min). Trading recommendation is blocked, forced PASS with zero position.`;
   const mergedFlags = Array.from(new Set([...(decision.riskFlags ?? []), 'weather_data_stale', 'low_data_quality']));
   return {
     ...decision,

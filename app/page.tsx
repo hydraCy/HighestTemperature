@@ -22,31 +22,14 @@ import { formatDateByMode, formatDateTimeByMode } from '@/lib/utils/time-display
 import type { CertaintySummary } from '@/src/lib/explainability/types';
 import { calculatePositionSize } from '@/src/lib/trading-engine/positionSizer';
 import { calculateRiskModifier } from '@/src/lib/trading-engine/riskEngine';
-import { getLocationConfig, normalizeLocationKey } from '@/lib/config/locations';
+import { resolveHomePageRequest, toDateKeyAtTimezone } from '@/src/presentation/home/load-home-data';
+import { buildRiskSet } from '@/src/presentation/home/view-model';
 
 type PageSearchParams = Promise<{ lang?: string | string[]; d?: string | string[]; l?: string | string[] }>;
 
 export default async function HomePage({ searchParams }: { searchParams: PageSearchParams }) {
-  const toDateKeyAtTimezone = (date: Date, timezone: string) => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).formatToParts(date);
-    const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
-    const m = parts.find((p) => p.type === 'month')?.value ?? '00';
-    const d = parts.find((p) => p.type === 'day')?.value ?? '00';
-    return `${y}-${m}-${d}`;
-  };
   const sp = await searchParams;
-  const lang = (Array.isArray(sp?.lang) ? sp.lang[0] : sp?.lang) === 'en' ? 'en' : 'zh';
-  const locationKey = normalizeLocationKey(Array.isArray(sp?.l) ? sp.l[0] : sp?.l);
-  const locationConfig = getLocationConfig(locationKey);
-  const selectedDate = Array.isArray(sp?.d) ? sp.d[0] : sp?.d;
-  const selectedDateKey = typeof selectedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate)
-    ? selectedDate
-    : toDateKeyAtTimezone(new Date(), locationConfig.timezone);
+  const { lang, locationKey, locationConfig, selectedDateKey } = resolveHomePageRequest(sp);
   const t =
     lang === 'en'
       ? {
@@ -523,9 +506,9 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     : false;
   const shanghaiTodayKey = toDateKeyAtTimezone(new Date(), locationConfig.timezone);
   const shanghaiTomorrowKey = toDateKeyAtTimezone(new Date(Date.now() + 24 * 3600 * 1000), locationConfig.timezone);
-  const pageDateKey = selectedDateKey;
-  const riskSet = new Set(data?.latestDecision?.riskFlags ?? []);
   const marketTargetDateKey = data?.market?.targetDate ? toDateKeyAtTimezone(new Date(data.market.targetDate), locationConfig.timezone) : null;
+  const pageDateKey = (data as { effectiveDateKey?: string | null })?.effectiveDateKey ?? marketTargetDateKey ?? selectedDateKey;
+  const riskSet = buildRiskSet(data?.latestDecision?.riskFlags);
   const isDateAligned = !marketTargetDateKey || !weatherTargetDate || marketTargetDateKey === weatherTargetDate;
   const selectedSettlementLabel = `${pageDateKey} 24:00`;
   const weatherStaleThresholdMinutes = Number(process.env.WEATHER_STALE_MINUTES ?? '15');
@@ -628,11 +611,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     { code: 'wunderground', label: t.apiWuRealtime },
     { code: 'wunderground_daily', label: t.apiWuDaily },
     { code: 'wunderground_history', label: t.apiWuHistory },
-    { code: 'aviationweather', label: t.apiAviation },
-    { code: 'wttr', label: t.apiWttr },
-    { code: 'met_no', label: t.apiMetNo },
-    { code: 'weatherapi', label: t.apiWeatherApi },
-    { code: 'qweather', label: t.apiQweather }
+    { code: 'aviationweather', label: t.apiAviation }
   ];
   const scenarioLabel = (tag?: string) => {
     if (tag === 'stable_sunny') return t.stableSunny;
@@ -938,6 +917,11 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
     (data?.marketSource !== 'api' || data?.weatherSource !== 'api' || weatherErrorsEffective.length > 0 || resolutionSourceStatus !== 'direct' || !strictReady || isWeatherStale)
       ? `${t.warningPrefix}（${t.warningMarket}：${sourceLabel(data?.marketSource)}，${t.warningWeather}：${sourceLabel(data?.weatherSource)}）`
       : '';
+  const dateFallbackWarning = (data as { fallbackFromRequestedDate?: boolean; requestedDateKey?: string | null; effectiveDateKey?: string | null })?.fallbackFromRequestedDate
+    ? (lang === 'en'
+        ? `Selected date ${(data as { requestedDateKey?: string | null }).requestedDateKey ?? '-'} has no market data. Fallback to latest available date ${(data as { effectiveDateKey?: string | null }).effectiveDateKey ?? pageDateKey}.`
+        : `所选日期 ${(data as { requestedDateKey?: string | null }).requestedDateKey ?? '-'} 暂无市场数据，已自动回退到最近可用日期 ${(data as { effectiveDateKey?: string | null }).effectiveDateKey ?? pageDateKey}。`)
+    : '';
   const settlementModeWarning = settlementContext?.degradedSettlementMode
     ? (lang === 'en'
         ? `Settlement-critical source unavailable (${settlementContext.settlementSourceStatus ?? 'missing'}). Running degraded settlement mode with supporting-source proxy estimates.`
@@ -1044,7 +1028,7 @@ export default async function HomePage({ searchParams }: { searchParams: PageSea
         shortTermTrackLabel={lang === 'en' ? 'Short-term Temperature Trajectory (next 1-12h)' : '短临温度轨迹（未来1~12h）'}
         shortTermTrackValue={shortTermTrackText}
         shortTermTrackNote={shortTermTrackNote}
-        warningText={[contextWarningText, settlementModeWarning].filter(Boolean).join(' ')}
+        warningText={[dateFallbackWarning, contextWarningText, settlementModeWarning].filter(Boolean).join(' ')}
         settledText={contextSettledText}
       />
 

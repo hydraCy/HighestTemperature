@@ -1,0 +1,2299 @@
+{
+  "sampleCount": 30,
+  "summary": {
+    "bucketCounts": {
+      "11": 4,
+      "14": 12,
+      "late": 9,
+      "08": 5
+    },
+    "spreadSigmaRaw": {
+      "min": 0,
+      "max": 1.693673710171436,
+      "avg": 0.7040091870851228
+    },
+    "spreadSigmaEffective": {
+      "min": 0.25,
+      "max": 1.485445071323434,
+      "avg": 0.7297353709713712
+    },
+    "finalSigma": {
+      "min": 0.9852090185396759,
+      "max": 1.65,
+      "avg": 1.2518969317300106
+    },
+    "observedVsMuGap": {
+      "min": 0.022727272727271597,
+      "max": 1.1333333333333382,
+      "avg": 0.5224905058933312
+    },
+    "finalUMinusObserved": {
+      "min": 0.49900000000000055,
+      "max": 1.3999999999999986,
+      "avg": 0.9248666666666668
+    },
+    "finalUMinusL": {
+      "min": 0.49900000000000055,
+      "max": 1.3999999999999986,
+      "avg": 0.9248666666666668
+    },
+    "remainingCap": {
+      "min": 0.49999999999999994,
+      "max": 1.4,
+      "avg": 0.925
+    },
+    "p15PositiveCount": 5,
+    "over90Count": 14,
+    "over95Count": 9,
+    "over90StructuralCount": 14,
+    "over90NonStructuralCount": 0,
+    "over95StructuralCount": 9,
+    "over95NonStructuralCount": 0,
+    "bucketOver90Counts": {
+      "14": 5,
+      "late": 9
+    },
+    "mostLikelyDistribution": {
+      "14°C": 4,
+      "16°C": 3,
+      "13°C": 15,
+      "12°C": 5,
+      "15°C": 3
+    }
+  },
+  "highProbabilityRows": [
+    {
+      "capturedAt": "2026-03-14T15:30:13.331Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 14.133333333333338,
+      "observedMaxSoFar": 14,
+      "finalSigma": 1.12,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "L": 14,
+      "finalU": 14.499,
+      "widthFromL": 0.49900000000000055,
+      "uMinusObserved": 0.49900000000000055,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "observed_floor_active"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + observed_floor_active。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + observed_floor_active.",
+        "widthFromL": 0.49900000000000055
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-18T07:42:28.385Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 12,
+      "observedMaxSoFar": 11.75,
+      "finalSigma": 1.06,
+      "spreadSigmaRaw": 0,
+      "L": 11.75,
+      "finalU": 12.5,
+      "widthFromL": 0.75,
+      "uMinusObserved": 0.75,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "high_source_consensus"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + high_source_consensus。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + high_source_consensus.",
+        "widthFromL": 0.75
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-14T15:29:08.213Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 14.133333333333338,
+      "observedMaxSoFar": 14,
+      "finalSigma": 1.12,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "L": 14,
+      "finalU": 14.499,
+      "widthFromL": 0.49900000000000055,
+      "uMinusObserved": 0.49900000000000055,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "observed_floor_active"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + observed_floor_active。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + observed_floor_active.",
+        "widthFromL": 0.49900000000000055
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-18T07:40:43.587Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 12,
+      "observedMaxSoFar": 11.75,
+      "finalSigma": 1.06,
+      "spreadSigmaRaw": 0,
+      "L": 11.75,
+      "finalU": 12.5,
+      "widthFromL": 0.75,
+      "uMinusObserved": 0.75,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "high_source_consensus"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + high_source_consensus。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + high_source_consensus.",
+        "widthFromL": 0.75
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-14T15:27:41.007Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 14.133333333333338,
+      "observedMaxSoFar": 14,
+      "finalSigma": 1.12,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "L": 14,
+      "finalU": 14.499,
+      "widthFromL": 0.49900000000000055,
+      "uMinusObserved": 0.49900000000000055,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "observed_floor_active"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + observed_floor_active。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + observed_floor_active.",
+        "widthFromL": 0.49900000000000055
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-18T07:35:40.597Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 12,
+      "observedMaxSoFar": 11.75,
+      "finalSigma": 1.06,
+      "spreadSigmaRaw": 0,
+      "L": 11.75,
+      "finalU": 12.5,
+      "widthFromL": 0.75,
+      "uMinusObserved": 0.75,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "high_source_consensus"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + high_source_consensus。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + high_source_consensus.",
+        "widthFromL": 0.75
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-14T15:14:04.420Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 14.133333333333338,
+      "observedMaxSoFar": 13,
+      "finalSigma": 1.12,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "L": 13,
+      "finalU": 13.499,
+      "widthFromL": 0.49900000000000055,
+      "uMinusObserved": 0.49900000000000055,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap.",
+        "widthFromL": 0.49900000000000055
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-18T07:30:38.063Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 12,
+      "observedMaxSoFar": 11.75,
+      "finalSigma": 1.06,
+      "spreadSigmaRaw": 0,
+      "L": 11.75,
+      "finalU": 12.5,
+      "widthFromL": 0.75,
+      "uMinusObserved": 0.75,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "high_source_consensus"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + high_source_consensus。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + high_source_consensus.",
+        "widthFromL": 0.75
+      },
+      "acceptableInBusinessView": true
+    },
+    {
+      "capturedAt": "2026-03-18T07:25:36.834Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "mu": 12,
+      "observedMaxSoFar": 11.75,
+      "finalSigma": 1.06,
+      "spreadSigmaRaw": 0,
+      "L": 11.75,
+      "finalU": 12.5,
+      "widthFromL": 0.75,
+      "uMinusObserved": 0.75,
+      "certaintySummary": {
+        "isStructuralCertainty": true,
+        "certaintyType": "structural",
+        "structuralReasons": [
+          "narrow_truncation_window",
+          "tight_upside_cap",
+          "high_source_consensus"
+        ],
+        "summaryZh": "高置信主要来自结构性约束：narrow_truncation_window + tight_upside_cap + high_source_consensus。",
+        "summaryEn": "High confidence is structural: narrow_truncation_window + tight_upside_cap + high_source_consensus.",
+        "widthFromL": 0.75
+      },
+      "acceptableInBusinessView": true
+    }
+  ],
+  "table": [
+    {
+      "capturedAt": "2026-03-14T15:30:13.331Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mu": 14.133333333333338,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "spreadSigmaEffective": 0.5416025603090641,
+      "lambda": 1,
+      "finalSigma": 1.12,
+      "observedMaxSoFar": 14,
+      "remainingCap": 0.49999999999999994,
+      "finalU": 14.499,
+      "p13": 0,
+      "p14": 1,
+      "p15": 0,
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.1333333333333382,
+      "L": 14,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.00671604938271654
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.08,
+          "diff": -1.1333333333333382,
+          "weightedSqContribution": 0.11417283950617384
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.08,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.001580246913580362
+        },
+        {
+          "source": "metNo",
+          "value": 15,
+          "weight": 0.2,
+          "diff": 0.8666666666666618,
+          "weightedSqContribution": 0.16691358024691172
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.003950617283950905
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-15T03:31:34.050Z",
+      "snapshotTime": "11:00",
+      "snapshotBucket": "11",
+      "mu": 14.977272727272728,
+      "sigmaBase": 0.95,
+      "spreadSigmaRaw": 1.1577532388136391,
+      "spreadSigmaEffective": 1.09958233194582,
+      "lambda": 1,
+      "finalSigma": 1.4531281102254567,
+      "observedMaxSoFar": 15,
+      "remainingCap": 1.15,
+      "finalU": 16.15,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0.4727596119686687,
+      "mostLikelyInteger": 16,
+      "mostLikelyIntegerProbability": 0.5272403880313312,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.022727272727271597,
+      "L": 15,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 16,
+          "weight": 0.3,
+          "diff": 1.0227272727272716,
+          "weightedSqContribution": 0.3565810480841465
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.1,
+          "diff": -1.9772727272727284,
+          "weightedSqContribution": 0.44427357250187893
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.1,
+          "diff": -0.9772727272727284,
+          "weightedSqContribution": 0.10852977084898599
+        },
+        {
+          "source": "metNo",
+          "value": 16,
+          "weight": 0.18,
+          "diff": 1.0227272727272716,
+          "weightedSqContribution": 0.2139486288504879
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.9772727272727284,
+          "weightedSqContribution": 0.21705954169797198
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T08:04:36.494Z",
+      "snapshotTime": "16:00",
+      "snapshotBucket": "late",
+      "mu": 11.999999999999998,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.7763568394002505e-15,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.12,
+      "observedMaxSoFar": 13,
+      "remainingCap": 0.55,
+      "finalU": 13.55,
+      "p13": 0.9314174354058284,
+      "p14": null,
+      "p15": null,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.9314174354058284,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 1.0000000000000018,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 12,
+          "weight": 0.34,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 1.3083546720738732e-30
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 3.0784815813502896e-31
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 7.696203953375725e-31
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 7.696203953375725e-31
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-13T07:50:10.891Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12.142857142857142,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.0926470386270253,
+      "spreadSigmaEffective": 1.0527058678114583,
+      "lambda": 1,
+      "finalSigma": 1.3849872360872773,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5121056929584255,
+      "p14": 0.48789430704157455,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5121056929584255,
+      "missingCoreSources": 1,
+      "observedVsMuGap": 0.8571428571428577,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "openMeteo",
+          "value": 10,
+          "weight": 0.1,
+          "diff": -2.1428571428571423,
+          "weightedSqContribution": 0.8199708454810491
+        },
+        {
+          "source": "wttr",
+          "value": 13,
+          "weight": 0.08,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.10495626822157446
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": -0.14285714285714235,
+          "weightedSqContribution": 0.006559766763848349
+        },
+        {
+          "source": "weatherAPI",
+          "value": 13,
+          "weight": 0.2,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.26239067055393617
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T07:42:28.385Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.06,
+      "observedMaxSoFar": 11.75,
+      "remainingCap": 0.75,
+      "finalU": 12.5,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.25,
+      "L": 11.75,
+      "spreadSourcePoints": [
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 0,
+          "weightedSqContribution": 0
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "wunderground",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-17T21:35:26.530Z",
+      "snapshotTime": "05:00",
+      "snapshotBucket": "08",
+      "mu": 12.578947368421053,
+      "sigmaBase": 1,
+      "spreadSigmaRaw": 0.49372797471825575,
+      "spreadSigmaEffective": 0.4937279747182557,
+      "lambda": 1,
+      "finalSigma": 1.1152431631798467,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5192897885851812,
+      "p14": 0.48071021141481884,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5192897885851812,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.4210526315789469,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 13,
+          "weight": 0.26,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.06065024055984824
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.12,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.05292316664236777
+        },
+        {
+          "source": "metNo",
+          "value": 13,
+          "weight": 0.18,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.04198862807989493
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.08820527773727964
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-14T15:29:08.213Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mu": 14.133333333333338,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "spreadSigmaEffective": 0.5416025603090641,
+      "lambda": 1,
+      "finalSigma": 1.12,
+      "observedMaxSoFar": 14,
+      "remainingCap": 0.49999999999999994,
+      "finalU": 14.499,
+      "p13": 0,
+      "p14": 1,
+      "p15": 0,
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.1333333333333382,
+      "L": 14,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.00671604938271654
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.08,
+          "diff": -1.1333333333333382,
+          "weightedSqContribution": 0.11417283950617384
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.08,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.001580246913580362
+        },
+        {
+          "source": "metNo",
+          "value": 15,
+          "weight": 0.2,
+          "diff": 0.8666666666666618,
+          "weightedSqContribution": 0.16691358024691172
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.003950617283950905
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-15T03:08:51.457Z",
+      "snapshotTime": "11:00",
+      "snapshotBucket": "11",
+      "mu": 14.636363636363638,
+      "sigmaBase": 0.95,
+      "spreadSigmaRaw": 0.9315409787235999,
+      "spreadSigmaEffective": 0.9315409787235999,
+      "lambda": 1,
+      "finalSigma": 1.3305144099337376,
+      "observedMaxSoFar": 15,
+      "remainingCap": 1.15,
+      "finalU": 16.15,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0.5069379817100411,
+      "mostLikelyInteger": 15,
+      "mostLikelyIntegerProbability": 0.5069379817100411,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.36363636363636154,
+      "L": 15,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 15,
+          "weight": 0.3,
+          "diff": 0.36363636363636154,
+          "weightedSqContribution": 0.04507888805409415
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.1,
+          "diff": -1.6363636363636385,
+          "weightedSqContribution": 0.3042824943651398
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.1,
+          "diff": -0.6363636363636385,
+          "weightedSqContribution": 0.046018031555221946
+        },
+        {
+          "source": "metNo",
+          "value": 16,
+          "weight": 0.18,
+          "diff": 1.3636363636363615,
+          "weightedSqContribution": 0.38035311795642257
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.6363636363636385,
+          "weightedSqContribution": 0.09203606311044389
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T08:04:36.201Z",
+      "snapshotTime": "16:00",
+      "snapshotBucket": "late",
+      "mu": 12.097560975609758,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.693673710171436,
+      "spreadSigmaEffective": 1.485445071323434,
+      "lambda": 1,
+      "finalSigma": 1.65,
+      "observedMaxSoFar": 13,
+      "remainingCap": 0.55,
+      "finalU": 13.55,
+      "p13": 0.9191558785219575,
+      "p14": 0.08084412147804254,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.9191558785219575,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.902439024390242,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": 1.902439024390242,
+          "weightedSqContribution": 1.5006746855094935
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": -0.09756097560975796,
+          "weightedSqContribution": 0.0009285994109197841
+        },
+        {
+          "source": "metNo",
+          "value": 10,
+          "weight": 0.2,
+          "diff": -2.097560975609758,
+          "weightedSqContribution": 1.0731126942441365
+        },
+        {
+          "source": "weatherAPI",
+          "value": 11,
+          "weight": 0.2,
+          "diff": -1.097560975609758,
+          "weightedSqContribution": 0.2938146573613277
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-13T07:37:42.840Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12.142857142857142,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.0926470386270253,
+      "spreadSigmaEffective": 1.0527058678114583,
+      "lambda": 1,
+      "finalSigma": 1.3849872360872773,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5121056929584255,
+      "p14": 0.48789430704157455,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5121056929584255,
+      "missingCoreSources": 1,
+      "observedVsMuGap": 0.8571428571428577,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "openMeteo",
+          "value": 10,
+          "weight": 0.1,
+          "diff": -2.1428571428571423,
+          "weightedSqContribution": 0.8199708454810491
+        },
+        {
+          "source": "wttr",
+          "value": 13,
+          "weight": 0.08,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.10495626822157446
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": -0.14285714285714235,
+          "weightedSqContribution": 0.006559766763848349
+        },
+        {
+          "source": "weatherAPI",
+          "value": 13,
+          "weight": 0.2,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.26239067055393617
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T07:40:43.587Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.06,
+      "observedMaxSoFar": 11.75,
+      "remainingCap": 0.75,
+      "finalU": 12.5,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.25,
+      "L": 11.75,
+      "spreadSourcePoints": [
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 0,
+          "weightedSqContribution": 0
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "wunderground",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-17T21:30:25.165Z",
+      "snapshotTime": "05:00",
+      "snapshotBucket": "08",
+      "mu": 12.578947368421053,
+      "sigmaBase": 1,
+      "spreadSigmaRaw": 0.49372797471825575,
+      "spreadSigmaEffective": 0.4937279747182557,
+      "lambda": 1,
+      "finalSigma": 1.1152431631798467,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5192897885851812,
+      "p14": 0.48071021141481884,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5192897885851812,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.4210526315789469,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 13,
+          "weight": 0.26,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.06065024055984824
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.12,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.05292316664236777
+        },
+        {
+          "source": "metNo",
+          "value": 13,
+          "weight": 0.18,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.04198862807989493
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.08820527773727964
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-14T15:27:41.007Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mu": 14.133333333333338,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "spreadSigmaEffective": 0.5416025603090641,
+      "lambda": 1,
+      "finalSigma": 1.12,
+      "observedMaxSoFar": 14,
+      "remainingCap": 0.49999999999999994,
+      "finalU": 14.499,
+      "p13": 0,
+      "p14": 1,
+      "p15": 0,
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.1333333333333382,
+      "L": 14,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.00671604938271654
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.08,
+          "diff": -1.1333333333333382,
+          "weightedSqContribution": 0.11417283950617384
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.08,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.001580246913580362
+        },
+        {
+          "source": "metNo",
+          "value": 15,
+          "weight": 0.2,
+          "diff": 0.8666666666666618,
+          "weightedSqContribution": 0.16691358024691172
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.003950617283950905
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-15T02:18:43.067Z",
+      "snapshotTime": "10:00",
+      "snapshotBucket": "11",
+      "mu": 14.636363636363638,
+      "sigmaBase": 0.95,
+      "spreadSigmaRaw": 0.9315409787235999,
+      "spreadSigmaEffective": 0.9315409787235999,
+      "lambda": 1,
+      "finalSigma": 1.3305144099337376,
+      "observedMaxSoFar": 15,
+      "remainingCap": 1,
+      "finalU": 16,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0.5599787064210039,
+      "mostLikelyInteger": 15,
+      "mostLikelyIntegerProbability": 0.5599787064210039,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.36363636363636154,
+      "L": 15,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 15,
+          "weight": 0.3,
+          "diff": 0.36363636363636154,
+          "weightedSqContribution": 0.04507888805409415
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.1,
+          "diff": -1.6363636363636385,
+          "weightedSqContribution": 0.3042824943651398
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.1,
+          "diff": -0.6363636363636385,
+          "weightedSqContribution": 0.046018031555221946
+        },
+        {
+          "source": "metNo",
+          "value": 16,
+          "weight": 0.18,
+          "diff": 1.3636363636363615,
+          "weightedSqContribution": 0.38035311795642257
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.6363636363636385,
+          "weightedSqContribution": 0.09203606311044389
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T08:04:36.200Z",
+      "snapshotTime": "16:00",
+      "snapshotBucket": "late",
+      "mu": 12.097560975609758,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.693673710171436,
+      "spreadSigmaEffective": 1.485445071323434,
+      "lambda": 1,
+      "finalSigma": 1.65,
+      "observedMaxSoFar": 13,
+      "remainingCap": 0.55,
+      "finalU": 13.55,
+      "p13": 0.9191558785219575,
+      "p14": 0.08084412147804254,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.9191558785219575,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.902439024390242,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": 1.902439024390242,
+          "weightedSqContribution": 1.5006746855094935
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": -0.09756097560975796,
+          "weightedSqContribution": 0.0009285994109197841
+        },
+        {
+          "source": "metNo",
+          "value": 10,
+          "weight": 0.2,
+          "diff": -2.097560975609758,
+          "weightedSqContribution": 1.0731126942441365
+        },
+        {
+          "source": "weatherAPI",
+          "value": 11,
+          "weight": 0.2,
+          "diff": -1.097560975609758,
+          "weightedSqContribution": 0.2938146573613277
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-13T07:34:17.091Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12.142857142857142,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.0926470386270253,
+      "spreadSigmaEffective": 1.0527058678114583,
+      "lambda": 1,
+      "finalSigma": 1.3849872360872773,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5121056929584255,
+      "p14": 0.48789430704157455,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5121056929584255,
+      "missingCoreSources": 1,
+      "observedVsMuGap": 0.8571428571428577,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "openMeteo",
+          "value": 10,
+          "weight": 0.1,
+          "diff": -2.1428571428571423,
+          "weightedSqContribution": 0.8199708454810491
+        },
+        {
+          "source": "wttr",
+          "value": 13,
+          "weight": 0.08,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.10495626822157446
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": -0.14285714285714235,
+          "weightedSqContribution": 0.006559766763848349
+        },
+        {
+          "source": "weatherAPI",
+          "value": 13,
+          "weight": 0.2,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.26239067055393617
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T07:35:40.597Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.06,
+      "observedMaxSoFar": 11.75,
+      "remainingCap": 0.75,
+      "finalU": 12.5,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.25,
+      "L": 11.75,
+      "spreadSourcePoints": [
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 0,
+          "weightedSqContribution": 0
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "wunderground",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-17T21:25:24.513Z",
+      "snapshotTime": "05:00",
+      "snapshotBucket": "08",
+      "mu": 12.578947368421053,
+      "sigmaBase": 1,
+      "spreadSigmaRaw": 0.49372797471825575,
+      "spreadSigmaEffective": 0.4937279747182557,
+      "lambda": 1,
+      "finalSigma": 1.1152431631798467,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5192897885851812,
+      "p14": 0.48071021141481884,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5192897885851812,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.4210526315789469,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 13,
+          "weight": 0.26,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.06065024055984824
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.12,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.05292316664236777
+        },
+        {
+          "source": "metNo",
+          "value": 13,
+          "weight": 0.18,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.04198862807989493
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.08820527773727964
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-14T15:14:04.420Z",
+      "snapshotTime": "23:00",
+      "snapshotBucket": "late",
+      "mu": 14.133333333333338,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0.5416025603090641,
+      "spreadSigmaEffective": 0.5416025603090641,
+      "lambda": 1,
+      "finalSigma": 1.12,
+      "observedMaxSoFar": 13,
+      "remainingCap": 0.49999999999999994,
+      "finalU": 13.499,
+      "p13": 1,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 1.1333333333333382,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.00671604938271654
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.08,
+          "diff": -1.1333333333333382,
+          "weightedSqContribution": 0.11417283950617384
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.08,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.001580246913580362
+        },
+        {
+          "source": "metNo",
+          "value": 15,
+          "weight": 0.2,
+          "diff": 0.8666666666666618,
+          "weightedSqContribution": 0.16691358024691172
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.1333333333333382,
+          "weightedSqContribution": 0.003950617283950905
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-15T02:17:57.996Z",
+      "snapshotTime": "10:00",
+      "snapshotBucket": "11",
+      "mu": 14.636363636363638,
+      "sigmaBase": 0.95,
+      "spreadSigmaRaw": 0.9315409787235999,
+      "spreadSigmaEffective": 0.9315409787235999,
+      "lambda": 1,
+      "finalSigma": 1.3305144099337376,
+      "observedMaxSoFar": 15,
+      "remainingCap": 1,
+      "finalU": 16,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0.5599787064210039,
+      "mostLikelyInteger": 15,
+      "mostLikelyIntegerProbability": 0.5599787064210039,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.36363636363636154,
+      "L": 15,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 15,
+          "weight": 0.3,
+          "diff": 0.36363636363636154,
+          "weightedSqContribution": 0.04507888805409415
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.1,
+          "diff": -1.6363636363636385,
+          "weightedSqContribution": 0.3042824943651398
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.1,
+          "diff": -0.6363636363636385,
+          "weightedSqContribution": 0.046018031555221946
+        },
+        {
+          "source": "metNo",
+          "value": 16,
+          "weight": 0.18,
+          "diff": 1.3636363636363615,
+          "weightedSqContribution": 0.38035311795642257
+        },
+        {
+          "source": "weatherAPI",
+          "value": 14,
+          "weight": 0.2,
+          "diff": -0.6363636363636385,
+          "weightedSqContribution": 0.09203606311044389
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T08:04:32.220Z",
+      "snapshotTime": "16:00",
+      "snapshotBucket": "late",
+      "mu": 11.999999999999998,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.7763568394002505e-15,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.12,
+      "observedMaxSoFar": 13,
+      "remainingCap": 0.55,
+      "finalU": 13.55,
+      "p13": 0.9314174354058284,
+      "p14": null,
+      "p15": null,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.9314174354058284,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 1.0000000000000018,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 12,
+          "weight": 0.34,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 1.3083546720738732e-30
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 3.0784815813502896e-31
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 7.696203953375725e-31
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 1.7763568394002505e-15,
+          "weightedSqContribution": 7.696203953375725e-31
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-13T07:29:55.371Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12.142857142857142,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.0926470386270253,
+      "spreadSigmaEffective": 1.0527058678114583,
+      "lambda": 1,
+      "finalSigma": 1.3849872360872773,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5121056929584255,
+      "p14": 0.48789430704157455,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5121056929584255,
+      "missingCoreSources": 1,
+      "observedVsMuGap": 0.8571428571428577,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "openMeteo",
+          "value": 10,
+          "weight": 0.1,
+          "diff": -2.1428571428571423,
+          "weightedSqContribution": 0.8199708454810491
+        },
+        {
+          "source": "wttr",
+          "value": 13,
+          "weight": 0.08,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.10495626822157446
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": -0.14285714285714235,
+          "weightedSqContribution": 0.006559766763848349
+        },
+        {
+          "source": "weatherAPI",
+          "value": 13,
+          "weight": 0.2,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.26239067055393617
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T07:30:38.063Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.06,
+      "observedMaxSoFar": 11.75,
+      "remainingCap": 0.75,
+      "finalU": 12.5,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.25,
+      "L": 11.75,
+      "spreadSourcePoints": [
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 0,
+          "weightedSqContribution": 0
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "wunderground",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-17T21:20:25.444Z",
+      "snapshotTime": "05:00",
+      "snapshotBucket": "08",
+      "mu": 12.578947368421053,
+      "sigmaBase": 1,
+      "spreadSigmaRaw": 0.49372797471825575,
+      "spreadSigmaEffective": 0.4937279747182557,
+      "lambda": 1,
+      "finalSigma": 1.1152431631798467,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5192897885851812,
+      "p14": 0.48071021141481884,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5192897885851812,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.4210526315789469,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 13,
+          "weight": 0.26,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.06065024055984824
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.12,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.05292316664236777
+        },
+        {
+          "source": "metNo",
+          "value": 13,
+          "weight": 0.18,
+          "diff": 0.4210526315789469,
+          "weightedSqContribution": 0.04198862807989493
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": -0.5789473684210531,
+          "weightedSqContribution": 0.08820527773727964
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-14T05:18:15.089Z",
+      "snapshotTime": "13:00",
+      "snapshotBucket": "14",
+      "mu": 14.91616766467066,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0.40079522229177267,
+      "spreadSigmaEffective": 0.40079522229177267,
+      "lambda": 1,
+      "finalSigma": 0.9852090185396759,
+      "observedMaxSoFar": 15,
+      "remainingCap": 1.4,
+      "finalU": 16.4,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0.4733344784418875,
+      "mostLikelyInteger": 16,
+      "mostLikelyIntegerProbability": 0.5266655215581125,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.08383233532934042,
+      "L": 15,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 15,
+          "weight": 0.34,
+          "diff": 0.08383233532934042,
+          "weightedSqContribution": 0.0028616437747330937
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.034999999999999996,
+          "diff": -1.9161676646706596,
+          "weightedSqContribution": 0.15390353074195126
+        },
+        {
+          "source": "wttr",
+          "value": 15,
+          "weight": 0.08,
+          "diff": 0.08383233532934042,
+          "weightedSqContribution": 0.000673327946996022
+        },
+        {
+          "source": "metNo",
+          "value": 15,
+          "weight": 0.18,
+          "diff": 0.08383233532934042,
+          "weightedSqContribution": 0.0015149878807410493
+        },
+        {
+          "source": "weatherAPI",
+          "value": 15,
+          "weight": 0.2,
+          "diff": 0.08383233532934042,
+          "weightedSqContribution": 0.001683319867490055
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-14T06:48:28.584Z",
+      "snapshotTime": "14:00",
+      "snapshotBucket": "14",
+      "mu": 15.167539267015707,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.2916135925817254,
+      "spreadSigmaEffective": 1.1959617866588421,
+      "lambda": 1,
+      "finalSigma": 1.4967713904094406,
+      "observedMaxSoFar": 16,
+      "remainingCap": 1.05,
+      "finalU": 17.05,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 16,
+      "mostLikelyIntegerProbability": 0.5539919445983372,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.832460732984293,
+      "L": 16,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 17,
+          "weight": 0.20400000000000001,
+          "diff": 1.832460732984293,
+          "weightedSqContribution": 0.896615336305738
+        },
+        {
+          "source": "openMeteo",
+          "value": 13,
+          "weight": 0.1,
+          "diff": -2.167539267015707,
+          "weightedSqContribution": 0.6149511091695011
+        },
+        {
+          "source": "wttr",
+          "value": 14,
+          "weight": 0.08,
+          "diff": -1.167539267015707,
+          "weightedSqContribution": 0.1427380041909502
+        },
+        {
+          "source": "metNo",
+          "value": 15,
+          "weight": 0.18,
+          "diff": -0.16753926701570698,
+          "weightedSqContribution": 0.0066132108358493
+        },
+        {
+          "source": "weatherAPI",
+          "value": 15,
+          "weight": 0.2,
+          "diff": -0.16753926701570698,
+          "weightedSqContribution": 0.007348012039832557
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T08:04:20.116Z",
+      "snapshotTime": "16:00",
+      "snapshotBucket": "late",
+      "mu": 12.097560975609758,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.693673710171436,
+      "spreadSigmaEffective": 1.485445071323434,
+      "lambda": 1,
+      "finalSigma": 1.65,
+      "observedMaxSoFar": 13,
+      "remainingCap": 0.55,
+      "finalU": 13.55,
+      "p13": 0.9191558785219575,
+      "p14": 0.08084412147804254,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.9191558785219575,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.902439024390242,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 14,
+          "weight": 0.34,
+          "diff": 1.902439024390242,
+          "weightedSqContribution": 1.5006746855094935
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": -0.09756097560975796,
+          "weightedSqContribution": 0.0009285994109197841
+        },
+        {
+          "source": "metNo",
+          "value": 10,
+          "weight": 0.2,
+          "diff": -2.097560975609758,
+          "weightedSqContribution": 1.0731126942441365
+        },
+        {
+          "source": "weatherAPI",
+          "value": 11,
+          "weight": 0.2,
+          "diff": -1.097560975609758,
+          "weightedSqContribution": 0.2938146573613277
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-13T07:29:16.227Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12.142857142857142,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 1.0926470386270253,
+      "spreadSigmaEffective": 1.0527058678114583,
+      "lambda": 1,
+      "finalSigma": 1.3849872360872773,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.5121056929584255,
+      "p14": 0.48789430704157455,
+      "p15": 0,
+      "mostLikelyInteger": 13,
+      "mostLikelyIntegerProbability": 0.5121056929584255,
+      "missingCoreSources": 1,
+      "observedVsMuGap": 0.8571428571428577,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "openMeteo",
+          "value": 10,
+          "weight": 0.1,
+          "diff": -2.1428571428571423,
+          "weightedSqContribution": 0.8199708454810491
+        },
+        {
+          "source": "wttr",
+          "value": 13,
+          "weight": 0.08,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.10495626822157446
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": -0.14285714285714235,
+          "weightedSqContribution": 0.006559766763848349
+        },
+        {
+          "source": "weatherAPI",
+          "value": 13,
+          "weight": 0.2,
+          "diff": 0.8571428571428577,
+          "weightedSqContribution": 0.26239067055393617
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-18T07:25:36.834Z",
+      "snapshotTime": "15:00",
+      "snapshotBucket": "14",
+      "mu": 12,
+      "sigmaBase": 0.9,
+      "spreadSigmaRaw": 0,
+      "spreadSigmaEffective": 0.25,
+      "lambda": 1,
+      "finalSigma": 1.06,
+      "observedMaxSoFar": 11.75,
+      "remainingCap": 0.75,
+      "finalU": 12.5,
+      "p13": 0,
+      "p14": 0,
+      "p15": 0,
+      "mostLikelyInteger": 12,
+      "mostLikelyIntegerProbability": 1,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.25,
+      "L": 11.75,
+      "spreadSourcePoints": [
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.08,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "weight": 0.18,
+          "diff": 0,
+          "weightedSqContribution": 0
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": 0,
+          "weightedSqContribution": 0
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "wunderground",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "metNo",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "reason": "hard_outlier_gte_6c_from_median"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "hard_outlier_gte_6c_from_median"
+        }
+      ]
+    },
+    {
+      "capturedAt": "2026-03-17T21:15:25.015Z",
+      "snapshotTime": "05:00",
+      "snapshotBucket": "08",
+      "mu": 12.81578947368421,
+      "sigmaBase": 1,
+      "spreadSigmaRaw": 0.7899121589370333,
+      "spreadSigmaEffective": 0.7899121589370333,
+      "lambda": 1,
+      "finalSigma": 1.2743473697687633,
+      "observedMaxSoFar": 13,
+      "remainingCap": 1.25,
+      "finalU": 14.25,
+      "p13": 0.47022790556382155,
+      "p14": 0.5297720944361785,
+      "p15": 0,
+      "mostLikelyInteger": 14,
+      "mostLikelyIntegerProbability": 0.5297720944361785,
+      "missingCoreSources": 0,
+      "observedVsMuGap": 0.18421052631578938,
+      "L": 13,
+      "spreadSourcePoints": [
+        {
+          "source": "wunderground",
+          "value": 13,
+          "weight": 0.26,
+          "diff": 0.18421052631578938,
+          "weightedSqContribution": 0.011608835107158466
+        },
+        {
+          "source": "wttr",
+          "value": 12,
+          "weight": 0.12,
+          "diff": -0.8157894736842106,
+          "weightedSqContribution": 0.10508091558536231
+        },
+        {
+          "source": "metNo",
+          "value": 14,
+          "weight": 0.18,
+          "diff": 1.1842105263157894,
+          "weightedSqContribution": 0.3321366088351071
+        },
+        {
+          "source": "weatherAPI",
+          "value": 12,
+          "weight": 0.2,
+          "diff": -0.8157894736842106,
+          "weightedSqContribution": 0.17513485930893724
+        }
+      ],
+      "spreadRemovedSources": [
+        {
+          "source": "openMeteo",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        },
+        {
+          "source": "qWeather",
+          "value": 0,
+          "reason": "zero_value_suspected_missing"
+        }
+      ]
+    }
+  ]
+}

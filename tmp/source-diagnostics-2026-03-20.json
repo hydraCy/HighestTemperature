@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "locationKey": "shanghai",
+    "targetDate": "2026-03-20",
+    "timezone": "Asia/Shanghai",
+    "stationCode": "ZSPD",
+    "lat": 31.1443,
+    "lon": 121.8083,
+    "proxy": {
+      "http_proxy": null,
+      "https_proxy": null,
+      "all_proxy": null
+    }
+  },
+  "summary": [
+    {
+      "source": "wunderground_page_key_extract",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 403,
+      "lastFailureCategory": "http_error",
+      "lastReason": "HTTP 403"
+    },
+    {
+      "source": "wunderground_nowcasting_api(key#1)",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 403,
+      "lastFailureCategory": "http_error",
+      "lastReason": "HTTP 403"
+    },
+    {
+      "source": "wunderground_daily_api(key#1)",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 403,
+      "lastFailureCategory": "http_error",
+      "lastReason": "HTTP 403"
+    },
+    {
+      "source": "wunderground_30d_api(key#1)",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 403,
+      "lastFailureCategory": "http_error",
+      "lastReason": "HTTP 403"
+    },
+    {
+      "source": "wttr",
+      "attempts": 4,
+      "okCount": 4,
+      "status": "ok",
+      "lastHttp": 200,
+      "lastFailureCategory": null,
+      "lastReason": null
+    }
+  ],
+  "details": [
+    {
+      "source": "wunderground_page_key_extract",
+      "url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD/date/2026-03-20",
+      "method": "GET",
+      "httpStatus": 403,
+      "parserKeys": [],
+      "bodyPreview": "This content is no longer available in your area",
+      "failureCategory": "http_error",
+      "ok": false,
+      "reason": "HTTP 403"
+    },
+    {
+      "source": "wunderground_nowcasting_api(key#1)",
+      "url": "https://api.weather.com/v3/wx/observations/current?geocode=31.1443,121.8083&units=m&language=en-US&format=json&apiKey=***",
+      "method": "GET",
+      "httpStatus": 403,
+      "parserKeys": [],
+      "bodyPreview": "Bad Request - Blocked",
+      "failureCategory": "http_error",
+      "ok": false,
+      "reason": "HTTP 403"
+    },
+    {
+      "source": "wunderground_daily_api(key#1)",
+      "url": "https://api.weather.com/v3/wx/forecast/daily/5day?geocode=31.1443,121.8083&units=m&language=en-US&format=json&apiKey=***",
+      "method": "GET",
+      "httpStatus": 403,
+      "parserKeys": [],
+      "bodyPreview": "Bad Request - Blocked",
+      "failureCategory": "http_error",
+      "ok": false,
+      "reason": "HTTP 403"
+    },
+    {
+      "source": "wunderground_30d_api(key#1)",
+      "url": "https://api.weather.com/v1/geocode/31.1443/121.8083/observations/historical.json?apiKey=***&units=m&startDate=20260320&endDate=20260320",
+      "method": "GET",
+      "httpStatus": 403,
+      "parserKeys": [],
+      "bodyPreview": "Bad Request - Blocked",
+      "failureCategory": "http_error",
+      "ok": false,
+      "reason": "HTTP 403"
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/ZSPD?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.14 and Lon 121.80\"}],\"current_condition\":[{\"observation_time\":\"03:24 AM\",\"localObsDateTime\":\"2026-03-20 11:24 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"113\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0001_sunny.png\"}],\"weatherDesc\":[{\"value\":\"Sunny\"}],\"windspeedMiles\":\"6\",\"windspeedKmph\":\"9\",\"winddirDegree\":\"76\",\"winddir16Point\":\"ENE\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0\",\"humidity\":\"41",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/~31.1443,121.8083?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.15 and Lon 121.00\"}],\"current_condition\":[{\"observation_time\":\"03:23 AM\",\"localObsDateTime\":\"2026-03-20 11:23 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"116\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0002_sunny_intervals.png\"}],\"weatherDesc\":[{\"value\":\"Partly cloudy\"}],\"windspeedMiles\":\"4\",\"windspeedKmph\":\"6\",\"winddirDegree\":\"85\",\"winddir16Point\":\"E\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/31.1443,121.8083?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.15 and Lon 121.00\"}],\"current_condition\":[{\"observation_time\":\"03:23 AM\",\"localObsDateTime\":\"2026-03-20 11:23 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"116\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0002_sunny_intervals.png\"}],\"weatherDesc\":[{\"value\":\"Partly cloudy\"}],\"windspeedMiles\":\"4\",\"windspeedKmph\":\"6\",\"winddirDegree\":\"85\",\"winddir16Point\":\"E\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/Shanghai?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.23 and Lon 121.49\"}],\"current_condition\":[{\"observation_time\":\"03:03 AM\",\"localObsDateTime\":\"2026-03-20 11:03 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"113\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0001_sunny.png\"}],\"weatherDesc\":[{\"value\":\"Sunny\"}],\"windspeedMiles\":\"6\",\"windspeedKmph\":\"9\",\"winddirDegree\":\"76\",\"winddir16Point\":\"ENE\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0\",\"humidity\":\"44",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    }
+  ]
+}

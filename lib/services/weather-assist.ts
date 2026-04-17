@@ -292,7 +292,7 @@ function strictSourceListFromEnv(): WeatherSourceCode[] {
 function strictKindListFromEnv(): SourceKind[] {
   const raw = process.env.WEATHER_STRICT_REQUIRED_KINDS?.trim();
   const allowed: SourceKind[] = ['settlement', 'observation', 'forecast', 'guidance'];
-  if (!raw) return ['settlement', 'forecast', 'guidance'];
+  if (!raw) return ['settlement'];
   const kinds = raw
     .split(',')
     .map((x) => x.trim().toLowerCase())
@@ -425,13 +425,8 @@ async function fetchWeatherAssistForStation(
   targetDate?: Date,
   marketId?: string
 ): Promise<{ data: WeatherAssist; source: 'api' }> {
-  const weatherApiKey = process.env.WEATHERAPI_KEY?.trim();
-  const weatherApiBase = (process.env.WEATHERAPI_API_BASE?.trim() || 'https://api.weatherapi.com/v1').replace(/\/+$/, '');
-  const qWeatherApiKey = process.env.QWEATHER_API_KEY?.trim();
-  const qWeatherApiBase = (process.env.QWEATHER_API_BASE?.trim() || 'https://devapi.qweather.com').replace(/\/+$/, '');
-  const nwsEnabled = isNwsHourlyEnabled();
   const targetDateResolved = targetDate ?? tomorrowInShanghai();
-  const [wuNowcastRes, wuDailyRes, wuHistoryRes, nwsHourlyRes, openMeteoRes, aviationRes, wttrRes, metNoRes, weatherApiRes, qWeatherRes] = await Promise.allSettled([
+  const [wuNowcastRes, wuDailyRes, wuHistoryRes, aviationRes] = await Promise.allSettled([
     fetchWundergroundNowcasting({
       stationCode: station.stationCode,
       latitude: station.latitude,
@@ -452,47 +447,11 @@ async function fetchWeatherAssistForStation(
       targetDate: targetDateResolved,
       timezone: station.timezone
     }),
-    nwsEnabled ? fetchNwsHourlyJson(station, 12000) : Promise.resolve(null),
-    fetchJsonWithCurlFallback(
-      `https://api.open-meteo.com/v1/forecast?latitude=${station.latitude}&longitude=${station.longitude}&hourly=temperature_2m,cloud_cover,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,relative_humidity_2m&forecast_days=3&timezone=${encodeURIComponent(station.timezone)}&models=ecmwf_ifs04`,
-      12000
-    ),
     fetchAviationMetarTaf(station, 12000),
-    fetchWttrJson(station, getLocationConfig(locationKey).weather.wttrQuery, 12000),
-    fetchJsonWithCurlFallback(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${station.latitude}&lon=${station.longitude}`, 12000),
-    weatherApiKey
-      ? fetchJsonWithCurlFallback(
-          `${weatherApiBase}/forecast.json?key=${encodeURIComponent(weatherApiKey)}&q=${station.latitude},${station.longitude}&days=3&aqi=no&alerts=no`,
-          12000
-        )
-      : Promise.resolve({ forecast: { forecastday: [] } }),
-    qWeatherApiKey
-      ? fetchJsonWithCurlFallback(
-          `${qWeatherApiBase}/v7/weather/3d?location=${station.longitude},${station.latitude}&key=${encodeURIComponent(qWeatherApiKey)}`,
-          12000
-        )
-      : Promise.resolve({ daily: [] })
   ]);
 
-  let nwsRows: HourlyPoint[] = [];
-  let openMeteoRows: HourlyPoint[] = [];
-  let openMeteoDailyMax: number | null = null;
-  let wttrRows: HourlyPoint[] = [];
-  let wttrDailyMax: number | null = null;
-  let metNoRows: HourlyPoint[] = [];
   let aviationMetar: AviationMetarPoint | null = null;
   let aviationTaf: AviationTafPoint | null = null;
-  let weatherApiDailyMax: number | null = null;
-  let weatherApiUpdatedAt: string | null = null;
-  let weatherApiMeta: { matchedDate: string | null; availableDates: string[]; field: 'maxtemp_c' } = {
-    matchedDate: null,
-    availableDates: [],
-    field: 'maxtemp_c'
-  };
-  let qWeatherDailyMax: number | null = null;
-  let qWeatherUpdatedAt: string | null = null;
-  let nwsUpdatedAt: string | null = null;
-  let metNoUpdatedAt: string | null = null;
   let wuDailyMax: number | null = null;
   let wuNowcasting: WundergroundNowcasting | null = null;
   let wuPeakWindow: { startHour: number; endHour: number; medianHour: number; sampleDays: number; method: string } | null = null;
@@ -505,13 +464,13 @@ async function fetchWeatherAssistForStation(
     wunderground_daily: { status: 'skipped', hasData: false },
     weather_com: { status: 'skipped', hasData: false, reason: '当前未接入 Weather.com API，保留结算对账位' },
     wunderground_history: { status: 'skipped', hasData: false },
-    nws_hourly: { status: 'skipped', hasData: false },
-    open_meteo: { status: 'skipped', hasData: false },
+    nws_hourly: { status: 'skipped', hasData: false, reason: '主源模式已停用' },
+    open_meteo: { status: 'skipped', hasData: false, reason: '主源模式已停用' },
     aviationweather: { status: 'skipped', hasData: false },
-    wttr: { status: 'skipped', hasData: false },
-    met_no: { status: 'skipped', hasData: false },
-    weatherapi: { status: 'skipped', hasData: false },
-    qweather: { status: 'skipped', hasData: false }
+    wttr: { status: 'skipped', hasData: false, reason: '主源模式已停用' },
+    met_no: { status: 'skipped', hasData: false, reason: '主源模式已停用' },
+    weatherapi: { status: 'skipped', hasData: false, reason: '主源模式已停用' },
+    qweather: { status: 'skipped', hasData: false, reason: '主源模式已停用' }
   };
 
   if (wuNowcastRes.status === 'fulfilled') {
@@ -569,49 +528,6 @@ async function fetchWeatherAssistForStation(
     }
   }
 
-  if (!nwsEnabled) {
-    apiStatus.nws_hourly = { status: 'skipped', hasData: false, reason: '未启用 ENABLE_NWS_HOURLY（默认关闭）' };
-  } else if (nwsHourlyRes.status === 'fulfilled' && nwsHourlyRes.value) {
-    try {
-      const parsedNws = nwsHourlySchema.parse(nwsHourlyRes.value);
-      nwsUpdatedAt = parsedNws.properties.updated ?? null;
-      nwsRows = toNwsRows(parsedNws);
-      apiStatus.nws_hourly = { status: nwsRows.length ? 'ok' : 'no_data', hasData: nwsRows.length > 0, reason: nwsRows.length ? undefined : '无逐小时数据' };
-    } catch (error) {
-      const reason = `NWS 小时预报数据结构异常：${error instanceof Error ? error.message : String(error)}`;
-      errors.push(reason);
-      apiStatus.nws_hourly = { status: 'parse_error', hasData: false, reason };
-    }
-  } else if (nwsHourlyRes.status === 'fulfilled') {
-    apiStatus.nws_hourly = { status: 'no_data', hasData: false, reason: 'NWS 未返回可用逐小时数据' };
-  } else {
-    const reason = `NWS 小时预报拉取失败：${nwsHourlyRes.reason instanceof Error ? nwsHourlyRes.reason.message : String(nwsHourlyRes.reason)}`;
-    errors.push(reason);
-    apiStatus.nws_hourly = { status: 'fetch_error', hasData: false, reason };
-  }
-
-  if (openMeteoRes.status === 'fulfilled') {
-    try {
-      const parsedOpenMeteo = openMeteoSchema.parse(openMeteoRes.value);
-      openMeteoRows = toOpenMeteoRows(parsedOpenMeteo);
-      openMeteoDailyMax = parseOpenMeteoDailyMax(parsedOpenMeteo, targetKey);
-      const hasData = openMeteoRows.length > 0 || openMeteoDailyMax != null;
-      apiStatus.open_meteo = {
-        status: hasData ? 'ok' : 'no_data',
-        hasData,
-        reason: hasData ? undefined : 'Open-Meteo(ECMWF IFS) 在目标日返回全 null'
-      };
-    } catch {
-      const reason = 'Open-Meteo 数据结构异常（字段解析失败）';
-      errors.push(reason);
-      apiStatus.open_meteo = { status: 'parse_error', hasData: false, reason };
-    }
-  } else {
-    const reason = `Open-Meteo 拉取失败：${openMeteoRes.reason instanceof Error ? openMeteoRes.reason.message : String(openMeteoRes.reason)}`;
-    errors.push(reason);
-    apiStatus.open_meteo = { status: 'fetch_error', hasData: false, reason };
-  }
-
   if (aviationRes.status === 'fulfilled') {
     aviationMetar = aviationRes.value.metar;
     aviationTaf = aviationRes.value.taf;
@@ -626,162 +542,18 @@ async function fetchWeatherAssistForStation(
     apiStatus.aviationweather = { status: 'fetch_error', hasData: false, reason };
   }
 
-  if (wttrRes.status === 'fulfilled') {
-    try {
-      const wttrParsed = wttrSchema.parse(wttrRes.value);
-      wttrRows = toWttrRows(wttrParsed);
-      wttrDailyMax = parseWttrDailyMax(wttrParsed, targetKey);
-      const hasWttrData = wttrRows.length > 0 || wttrDailyMax != null;
-      apiStatus.wttr = {
-        status: hasWttrData ? 'ok' : 'no_data',
-        hasData: hasWttrData,
-        reason: hasWttrData ? undefined : `目标日(${targetKey})无逐小时与日最高温数据`
-      };
-    } catch (error) {
-      const reason = `wttr.in 数据结构异常：${error instanceof Error ? error.message : String(error)}`;
-      errors.push(reason);
-      apiStatus.wttr = { status: 'parse_error', hasData: false, reason };
-    }
-  } else {
-    const reason = `wttr.in 拉取失败：${wttrRes.reason instanceof Error ? wttrRes.reason.message : String(wttrRes.reason)}`;
-    errors.push(reason);
-    apiStatus.wttr = { status: 'fetch_error', hasData: false, reason };
-  }
-
-  if (metNoRes.status === 'fulfilled') {
-    try {
-      const parsedMetNo = metNoSchema.parse(metNoRes.value);
-      metNoUpdatedAt = parsedMetNo.properties.meta?.updated_at ?? null;
-      metNoRows = toMetNoRows(parsedMetNo);
-      apiStatus.met_no = { status: metNoRows.length ? 'ok' : 'no_data', hasData: metNoRows.length > 0, reason: metNoRows.length ? undefined : '无逐小时数据' };
-    } catch (error) {
-      const reason = `met.no 数据结构异常：${error instanceof Error ? error.message : String(error)}`;
-      errors.push(reason);
-      apiStatus.met_no = { status: 'parse_error', hasData: false, reason };
-    }
-  } else {
-    const reason = `met.no 拉取失败：${metNoRes.reason instanceof Error ? metNoRes.reason.message : String(metNoRes.reason)}`;
-    errors.push(reason);
-    apiStatus.met_no = { status: 'fetch_error', hasData: false, reason };
-  }
-
-  if (weatherApiRes.status === 'fulfilled') {
-    if (!weatherApiKey) {
-      apiStatus.weatherapi = { status: 'skipped', hasData: false, reason: '未配置 WEATHERAPI_KEY' };
-      if (strictRequiredSources.includes('weatherapi')) {
-        errors.push('WeatherAPI 未配置 API Key（WEATHERAPI_KEY）');
-      }
-    } else {
-      try {
-        const weatherApiParsedPayload = weatherApiSchema.parse(weatherApiRes.value);
-        weatherApiUpdatedAt =
-          typeof weatherApiParsedPayload.current?.last_updated_epoch === 'number'
-            ? new Date(weatherApiParsedPayload.current.last_updated_epoch * 1000).toISOString()
-            : (weatherApiParsedPayload.current?.last_updated ?? null);
-        const parsedWeatherApi = parseWeatherApiDailyMax(weatherApiParsedPayload, targetKey);
-        weatherApiDailyMax = parsedWeatherApi.value;
-        weatherApiMeta = {
-          matchedDate: parsedWeatherApi.matchedDate,
-          availableDates: parsedWeatherApi.availableDates,
-          field: parsedWeatherApi.field
-        };
-        apiStatus.weatherapi = {
-          status: weatherApiDailyMax == null ? 'no_data' : 'ok',
-          hasData: weatherApiDailyMax != null,
-          reason: weatherApiDailyMax == null
-            ? `目标日(${targetKey})未返回最高温；可用日期: ${weatherApiMeta.availableDates.join(', ') || '-'}；字段: ${weatherApiMeta.field}`
-            : `命中日期 ${weatherApiMeta.matchedDate}；字段 ${weatherApiMeta.field}=${weatherApiDailyMax.toFixed(1)}°C`
-        };
-        if (weatherApiDailyMax == null) {
-          if (strictRequiredSources.includes('weatherapi')) {
-            errors.push('WeatherAPI 解析失败：未提取到目标日最高温');
-          }
-        }
-      } catch (error) {
-        const reason = `WeatherAPI 数据结构异常：${error instanceof Error ? error.message : String(error)}`;
-        apiStatus.weatherapi = { status: 'parse_error', hasData: false, reason };
-        if (strictRequiredSources.includes('weatherapi')) {
-          errors.push(reason);
-        }
-      }
-    }
-  } else {
-    const reason = `WeatherAPI 拉取失败：${weatherApiRes.reason instanceof Error ? weatherApiRes.reason.message : String(weatherApiRes.reason)}`;
-    apiStatus.weatherapi = { status: 'fetch_error', hasData: false, reason };
-    if (strictRequiredSources.includes('weatherapi')) {
-      errors.push(reason);
-    }
-  }
-
-  if (qWeatherRes.status === 'fulfilled') {
-    if (!qWeatherApiKey) {
-      apiStatus.qweather = { status: 'skipped', hasData: false, reason: '未配置 QWEATHER_API_KEY' };
-      if (strictRequiredSources.includes('qweather')) {
-        errors.push('QWeather 未配置 API Key（QWEATHER_API_KEY）');
-      }
-    } else {
-      try {
-        const qWeatherParsedPayload = qWeatherSchema.parse(qWeatherRes.value);
-        qWeatherUpdatedAt = qWeatherParsedPayload.updateTime ?? null;
-        qWeatherDailyMax = parseQWeatherDailyMax(qWeatherParsedPayload, targetKey);
-        apiStatus.qweather = {
-          status: qWeatherDailyMax == null ? 'no_data' : 'ok',
-          hasData: qWeatherDailyMax != null,
-          reason: qWeatherDailyMax == null ? '目标日未返回最高温' : undefined
-        };
-        if (qWeatherDailyMax == null && strictRequiredSources.includes('qweather')) {
-          errors.push('QWeather 解析失败：未提取到目标日最高温');
-        }
-      } catch (error) {
-        const reason = `QWeather 数据结构异常：${error instanceof Error ? error.message : String(error)}`;
-        apiStatus.qweather = { status: 'parse_error', hasData: false, reason };
-        if (strictRequiredSources.includes('qweather')) {
-          errors.push(reason);
-        }
-      }
-    }
-  } else if (strictRequiredSources.includes('qweather')) {
-    const reason = `QWeather 拉取失败：${qWeatherRes.reason instanceof Error ? qWeatherRes.reason.message : String(qWeatherRes.reason)}`;
-    errors.push(reason);
-    apiStatus.qweather = { status: 'fetch_error', hasData: false, reason };
-  } else {
-    const reason = `QWeather 拉取失败：${qWeatherRes.reason instanceof Error ? qWeatherRes.reason.message : String(qWeatherRes.reason)}`;
-    apiStatus.qweather = { status: 'fetch_error', hasData: false, reason };
-  }
-
-  if (!openMeteoRows.length && !nwsRows.length && !wttrRows.length && !metNoRows.length) {
-    throw new Error(`天气实时数据获取失败：${errors.join(' | ')}`);
-  }
-
-  const openMeteoTarget = filterByDateKey(openMeteoRows, targetKey);
-  const nwsTarget = filterByDateKey(nwsRows, targetKey);
-  const wttrTarget = filterByDateKey(wttrRows, targetKey);
-  const metNoTarget = filterByDateKey(metNoRows, targetKey);
-  if (apiStatus.open_meteo.status === 'ok' && openMeteoTarget.length === 0 && openMeteoDailyMax == null) {
-    apiStatus.open_meteo = { status: 'no_data', hasData: false, reason: `目标日(${targetKey})无数据` };
-  }
-  if (apiStatus.nws_hourly.status === 'ok' && nwsTarget.length === 0) {
-    apiStatus.nws_hourly = { status: 'no_data', hasData: false, reason: `目标日(${targetKey})无数据` };
-  }
-  if (apiStatus.wttr.status === 'ok' && wttrTarget.length === 0 && wttrDailyMax == null) {
-    apiStatus.wttr = { status: 'no_data', hasData: false, reason: `目标日(${targetKey})无数据` };
-  }
-  if (apiStatus.met_no.status === 'ok' && metNoTarget.length === 0) {
-    apiStatus.met_no = { status: 'no_data', hasData: false, reason: `目标日(${targetKey})无数据` };
-  }
-
   const availability: Record<WeatherSourceCode, boolean> = {
     wunderground: wuNowcasting != null && Array.isArray(wuNowcasting.futureHours) && wuNowcasting.futureHours.length > 0,
     wunderground_daily: wuDailyMax != null,
     weather_com: false,
     wunderground_history: wuPeakWindow != null,
-    nws_hourly: nwsTarget.length > 0,
-    open_meteo: openMeteoTarget.length > 0 || openMeteoDailyMax != null,
+    nws_hourly: false,
+    open_meteo: false,
     aviationweather: aviationMetar != null || aviationTaf != null,
-    wttr: wttrTarget.length > 0 || wttrDailyMax != null,
-    met_no: metNoTarget.length > 0,
-    weatherapi: weatherApiDailyMax != null,
-    qweather: qWeatherDailyMax != null
+    wttr: false,
+    met_no: false,
+    weatherapi: false,
+    qweather: false
   };
   const sourceKindByCode: Record<WeatherSourceCode, SourceKind> = {
     wunderground: classifySourceKind('wunderground'),
@@ -809,21 +581,18 @@ async function fetchWeatherAssistForStation(
     : missingKinds.map((k) => `kind:${k}` as unknown as WeatherSourceCode);
   const strictReady = missingSources.length === 0;
 
-  const weatherApiDate = weatherApiMeta.matchedDate ?? formatDateInTz(weatherApiUpdatedAt, station.timezone);
   const sourceDateLabels: Record<WeatherSourceCode, string | null> = {
     wunderground: formatDateTimeInTz(wuNowcasting?.observedAt, station.timezone) ?? targetKey,
     wunderground_daily: targetKey,
     weather_com: targetKey,
     wunderground_history: `${targetKey} (30d)`,
-    nws_hourly: formatDateTimeInTz(nwsUpdatedAt, station.timezone) ?? targetKey,
+    nws_hourly: targetKey,
     open_meteo: targetKey,
     aviationweather: formatDateTimeInTz(aviationMetar?.observedAt ?? aviationTaf?.issuedAt, station.timezone) ?? targetKey,
     wttr: targetKey,
-    met_no: metNoUpdatedAt
-      ? `${targetKey}（发布 ${formatDateTimeInTz(metNoUpdatedAt, station.timezone) ?? '-'}）`
-      : targetKey,
-    weatherapi: weatherApiDate ?? targetKey,
-    qweather: formatDateTimeInTz(qWeatherUpdatedAt, station.timezone) ?? targetKey,
+    met_no: targetKey,
+    weatherapi: targetKey,
+    qweather: targetKey,
   };
   (Object.keys(apiStatus) as WeatherSourceCode[]).forEach((code) => {
     const criticality = sourceCriticality(code);
@@ -839,7 +608,7 @@ async function fetchWeatherAssistForStation(
   const hasSettlementSource = settlementSourceStatus === 'ok';
   const degradedSettlementMode = !hasSettlementSource;
 
-  const data = await buildAssistFromTargetDay(openMeteoRows, openMeteoDailyMax, nwsRows, wttrRows, wttrDailyMax, metNoRows, targetKey, {
+  const data = await buildAssistFromTargetDay(targetKey, {
     targetDate: targetKey,
     mode: 'next_day_forecast',
     resolutionSource: 'Wunderground(ZSPD)',
@@ -863,27 +632,22 @@ async function fetchWeatherAssistForStation(
     },
     errors,
     apiStatus,
-    openMeteo: apiStatus.open_meteo.status === 'ok' ? 'ok' : null,
-    openMeteoModel: 'ecmwf_ifs04',
-    nwsHourly: apiStatus.nws_hourly.status === 'ok' ? 'ok' : null,
     wunderground: wuNowcasting ? 'ok' : null,
     wundergroundDaily: wuDailyMax != null ? 'ok' : null,
-    wttr: wttrRes.status === 'fulfilled' ? 'ok' : null,
-    metNo: metNoRes.status === 'fulfilled' ? 'ok' : null,
-    weatherapi: weatherApiDailyMax != null ? 'ok' : null,
-    qweather: qWeatherDailyMax != null ? 'ok' : null,
+    openMeteo: null,
+    openMeteoModel: null,
+    nwsHourly: null,
+    wttr: null,
+    metNo: null,
+    weatherapi: null,
+    qweather: null,
     sourceGroups: {
       settlementCritical: ['wunderground', 'wunderground_daily', 'wunderground_history'],
-      free: ['wunderground_daily', 'open_meteo', 'aviationweather', 'wttr', 'met_no'],
-      paid: ['weatherapi', 'qweather']
+      free: ['aviationweather'],
+      paid: []
     },
-    weatherapiMeta: weatherApiMeta
-  }, weatherApiDailyMax, qWeatherDailyMax, wuNowcasting, wuDailyMax, wuPeakWindow, aviationMetar, aviationTaf, {
-    nwsUpdatedAt,
-    metNoUpdatedAt,
-    weatherApiUpdatedAt,
-    qWeatherUpdatedAt
-  }, marketId);
+    weatherapiMeta: null
+  }, wuNowcasting, wuDailyMax, wuPeakWindow, aviationMetar, aviationTaf, marketId);
 
   return { source: 'api', data };
 }
@@ -1238,27 +1002,13 @@ function parseWttrDailyMax(input: z.infer<typeof wttrSchema>, targetDateKey: str
 }
 
 async function buildAssistFromTargetDay(
-  openMeteoRows: HourlyPoint[],
-  openMeteoDailyMaxInput: number | null,
-  nwsRows: HourlyPoint[],
-  wttrRows: HourlyPoint[],
-  wttrDailyMaxInput: number | null,
-  metNoRows: HourlyPoint[],
   targetDateKey: string,
   rawMeta: Record<string, unknown>,
-  weatherApiDailyMax: number | null,
-  qWeatherDailyMax: number | null,
   wuNowcasting: WundergroundNowcasting | null,
   wuDailyMax: number | null,
   wuPeakWindow: { startHour: number; endHour: number; medianHour: number; sampleDays: number; method: string } | null,
   aviationMetar: AviationMetarPoint | null,
   aviationTaf: AviationTafPoint | null,
-  sourceUpdatedAt: {
-    nwsUpdatedAt?: string | null;
-    metNoUpdatedAt?: string | null;
-    weatherApiUpdatedAt?: string | null;
-    qWeatherUpdatedAt?: string | null;
-  },
   marketId?: string
 ): Promise<WeatherAssist> {
   const stationCode = typeof rawMeta.stationCode === 'string' ? rawMeta.stationCode : 'ZSPD';
@@ -1267,206 +1017,32 @@ async function buildAssistFromTargetDay(
       ? rawMeta.stationName
       : 'Shanghai Pudong International Airport Station';
   const resolutionCityName = stationCode === 'VHHH' ? 'Hong Kong' : 'Shanghai';
-  const openMeteoTarget = filterByDateKey(openMeteoRows, targetDateKey);
-  const nwsTarget = filterByDateKey(nwsRows, targetDateKey);
-  const wttrTarget = filterByDateKey(wttrRows, targetDateKey);
-  const metTarget = filterByDateKey(metNoRows, targetDateKey);
-
-  if (!openMeteoTarget.length && !nwsTarget.length && !wttrTarget.length && !metTarget.length && weatherApiDailyMax == null && qWeatherDailyMax == null && wuDailyMax == null) {
-    throw new Error(`天气源中未找到目标日(${targetDateKey})逐小时预测`);
+  const nowcasting = buildNowcastingContext([], [], [], [], targetDateKey, wuNowcasting, aviationMetar, aviationTaf);
+  if (wuDailyMax == null && !wuNowcasting) {
+    throw new Error(`主源不可用：目标日(${targetDateKey})缺少 Wunderground 数据`);
   }
 
-  const mergedRows = mergeAllRows(openMeteoTarget, nwsTarget, wttrTarget, metTarget);
-  if (!mergedRows.length && weatherApiDailyMax == null && qWeatherDailyMax == null && wuDailyMax == null) {
-    throw new Error(`目标日(${targetDateKey})逐小时预测融合失败`);
-  }
-
-  const fallback = mergedRows[0] ?? {
-    time: new Date(`${targetDateKey}T14:00:00+08:00`),
-    temp: wuDailyMax ?? weatherApiDailyMax ?? qWeatherDailyMax ?? 0,
-    cloud: 0,
-    precip: 0,
-    wind: 0,
-    humidity: 0
-  };
-  const peak = mergedRows.length ? [...mergedRows].sort((a, b) => b.temp - a.temp)[0] : fallback;
-  const peakIdx = mergedRows.findIndex((r) => r.time.getTime() === peak.time.getTime());
-  const prev1 = mergedRows[Math.max(0, peakIdx - 1)] ?? peak;
-  const prev2 = mergedRows[Math.max(0, peakIdx - 2)] ?? prev1;
-  const prev3 = mergedRows[Math.max(0, peakIdx - 3)] ?? prev2;
-
-  const precipitationProxy = Math.max(peak.precip, (peak.rainProb ?? 0) / 100);
-  const nowcasting = buildNowcastingContext(openMeteoRows, nwsRows, wttrRows, metNoRows, targetDateKey, wuNowcasting, aviationMetar, aviationTaf);
-  const rowDailyMaxRaw = mergedRows.length ? Math.max(...mergedRows.map((r) => r.temp)) : (wuDailyMax ?? weatherApiDailyMax ?? qWeatherDailyMax ?? peak.temp);
+  const dailyRaw = wuDailyMax ?? nowcasting.todayMaxTemp ?? nowcasting.currentTemp;
   const wuDailyMaxInt = toResolutionInt(wuDailyMax);
-  const openMeteoDailyMaxRaw = openMeteoTarget.length ? Math.max(...openMeteoTarget.map((r) => r.temp)) : openMeteoDailyMaxInput;
-  const nwsDailyMaxRaw = nwsTarget.length ? Math.max(...nwsTarget.map((r) => r.temp)) : null;
-  const wttrDailyMaxRaw = wttrTarget.length ? Math.max(...wttrTarget.map((r) => r.temp)) : wttrDailyMaxInput;
-  const metNoDailyMaxRaw = metTarget.length ? Math.max(...metTarget.map((r) => r.temp)) : null;
-  const openMeteoDailyMax = toResolutionInt(openMeteoDailyMaxRaw);
-  const nwsDailyMax = toResolutionInt(nwsDailyMaxRaw);
-  const wttrDailyMax = toResolutionInt(wttrDailyMaxRaw);
-  const metNoDailyMax = toResolutionInt(metNoDailyMaxRaw);
-  const weatherApiDailyMaxInt = toResolutionInt(weatherApiDailyMax);
-  const qWeatherDailyMaxInt = toResolutionInt(qWeatherDailyMax);
-  const rowDailyMax = toResolutionInt(rowDailyMaxRaw) ?? 0;
-
-  const fusionExcluded = fusionExcludedSourcesFromEnv();
   const nowTs = Date.now();
   const sourceAgeHours = {
     wunderground_daily: estimateSourceAgeHours(wuNowcasting?.observedAt ?? null, nowTs),
-    open_meteo: nearestRowAgeHours(openMeteoRows, nowTs),
-    nws_hourly: estimateSourceAgeHours(sourceUpdatedAt.nwsUpdatedAt, nowTs),
-    wttr: nearestRowAgeHours(wttrRows, nowTs),
-    met_no: estimateSourceAgeHours(sourceUpdatedAt.metNoUpdatedAt ?? (metNoRows[0]?.time ?? null), nowTs),
-    weatherapi: estimateSourceAgeHours(sourceUpdatedAt.weatherApiUpdatedAt, nowTs),
-    qweather: estimateSourceAgeHours(sourceUpdatedAt.qWeatherUpdatedAt, nowTs)
+    aviationweather: estimateSourceAgeHours(aviationMetar?.observedAt ?? aviationTaf?.issuedAt ?? null, nowTs)
   };
   const sourceHealth = marketId
     ? Object.fromEntries(await Promise.all([
       computeSourceHealth(marketId, 'wunderground_daily', rawMeta.wundergroundDaily as string | null | undefined, sourceAgeHours.wunderground_daily).then((x) => [x.sourceCode, x]),
-      computeSourceHealth(marketId, 'open_meteo', rawMeta.openMeteo as string | null | undefined, sourceAgeHours.open_meteo).then((x) => [x.sourceCode, x]),
-      computeSourceHealth(marketId, 'wttr', rawMeta.wttr as string | null | undefined, sourceAgeHours.wttr).then((x) => [x.sourceCode, x]),
-      computeSourceHealth(marketId, 'met_no', rawMeta.metNo as string | null | undefined, sourceAgeHours.met_no).then((x) => [x.sourceCode, x]),
-      computeSourceHealth(marketId, 'weatherapi', rawMeta.weatherapi as string | null | undefined, sourceAgeHours.weatherapi).then((x) => [x.sourceCode, x]),
-      computeSourceHealth(marketId, 'qweather', rawMeta.qweather as string | null | undefined, sourceAgeHours.qweather).then((x) => [x.sourceCode, x]),
-      computeSourceHealth(marketId, 'nws_hourly', rawMeta.nwsHourly as string | null | undefined, sourceAgeHours.nws_hourly).then((x) => [x.sourceCode, x])
+      computeSourceHealth(marketId, 'aviationweather', rawMeta.aviationweather as string | null | undefined, sourceAgeHours.aviationweather).then((x) => [x.sourceCode, x])
     ]))
     : {};
 
-  const fusionSources = [
-    wuDailyMax != null ? {
-      sourceName: 'wunderground_daily',
-      rawPredictedMaxTemp: wuDailyMax,
-      stationType: 'exact_station' as const,
-      explicitResolutionStation: true,
-      sourceKind: classifySourceKind('wunderground_daily'),
-      forecastAgeHours: sourceAgeHours.wunderground_daily,
-      healthStatus: sourceHealth.wunderground_daily?.status
-    } : null,
-    openMeteoDailyMaxRaw != null ? {
-      sourceName: 'open_meteo',
-      rawPredictedMaxTemp: openMeteoDailyMaxRaw,
-      stationType: 'region_grid' as const,
-      explicitResolutionStation: false,
-      sourceKind: classifySourceKind('open_meteo'),
-      forecastAgeHours: sourceAgeHours.open_meteo,
-      healthStatus: sourceHealth.open_meteo?.status
-    } : null,
-    nwsDailyMaxRaw != null ? {
-      sourceName: 'nws_hourly',
-      rawPredictedMaxTemp: nwsDailyMaxRaw,
-      stationType: 'east_china_grid' as const,
-      explicitResolutionStation: false,
-      sourceKind: classifySourceKind('nws_hourly'),
-      forecastAgeHours: sourceAgeHours.nws_hourly,
-      healthStatus: sourceHealth.nws_hourly?.status
-    } : null,
-    wttrDailyMaxRaw != null ? {
-      sourceName: 'wttr',
-      rawPredictedMaxTemp: wttrDailyMaxRaw,
-      stationType: 'city_level' as const,
-      explicitResolutionStation: false,
-      sourceKind: classifySourceKind('wttr'),
-      forecastAgeHours: sourceAgeHours.wttr,
-      healthStatus: sourceHealth.wttr?.status
-    } : null,
-    metNoDailyMaxRaw != null ? {
-      sourceName: 'met_no',
-      rawPredictedMaxTemp: metNoDailyMaxRaw,
-      stationType: 'region_grid' as const,
-      explicitResolutionStation: false,
-      sourceKind: classifySourceKind('met_no'),
-      forecastAgeHours: sourceAgeHours.met_no,
-      healthStatus: sourceHealth.met_no?.status
-    } : null,
-    weatherApiDailyMax != null ? {
-      sourceName: 'weatherapi',
-      rawPredictedMaxTemp: weatherApiDailyMax,
-      stationType: 'city_level' as const,
-      explicitResolutionStation: false,
-      sourceKind: classifySourceKind('weatherapi'),
-      forecastAgeHours: sourceAgeHours.weatherapi,
-      healthStatus: sourceHealth.weatherapi?.status
-    } : null,
-    qWeatherDailyMax != null ? {
-      sourceName: 'qweather',
-      rawPredictedMaxTemp: qWeatherDailyMax,
-      stationType: 'city_level' as const,
-      explicitResolutionStation: false,
-      sourceKind: classifySourceKind('qweather'),
-      forecastAgeHours: sourceAgeHours.qweather,
-      healthStatus: sourceHealth.qweather?.status
-    } : null
-  ]
-    .filter((x): x is NonNullable<typeof x> => x != null)
-    .map((x): WeatherSourceInput => x)
-    .filter((x) => !fusionExcluded.has(x.sourceName.toLowerCase()));
-  const calibrations = await loadFusionCalibrations({
-    scenarioTag: nowcasting.scenarioTag,
-    nowHourLocal: hourOf(new Date()),
-    isTargetDateToday: toDateKey(new Date()) === targetDateKey
-  });
-  const fusionOutput =
-    fusionSources.length >= 2
-      ? runFusionEngine({
-          sources: fusionSources,
-          calibrations,
-          resolutionContext: {
-            cityName: resolutionCityName,
-            resolutionStationName: stationName,
-            resolutionSourceName: 'Wunderground',
-            precision: 'integer_celsius'
-          },
-          scenarioContext: {
-            currentTemp: nowcasting.currentTemp,
-            tempRise1h: nowcasting.tempRise1h,
-            tempRise2h: nowcasting.tempRise2h,
-            cloudCover: nowcasting.cloudCover,
-            precipitationProb: nowcasting.precipitationProb,
-            windSpeed: nowcasting.windSpeed,
-            nowHourLocal: hourOf(new Date()),
-            isTargetDateToday: toDateKey(new Date()) === targetDateKey,
-            peakWindowStartHour: wuPeakWindow?.startHour,
-            peakWindowEndHour: wuPeakWindow?.endHour,
-            scenarioTag: nowcasting.scenarioTag
-          }
-        })
-      : null;
-  const medianFallback = mergeMedian([
-    wuDailyMaxInt ?? undefined,
-    openMeteoDailyMax ?? undefined,
-    nwsDailyMax ?? undefined,
-    wttrDailyMax ?? undefined,
-    metNoDailyMax ?? undefined,
-    weatherApiDailyMaxInt ?? undefined,
-    qWeatherDailyMaxInt ?? undefined
-  ]);
-  const fusedRaw = fusionOutput?.fusedTemp ?? (medianFallback > 0 ? medianFallback : rowDailyMax);
-  const dailyMaxContinuous = Number(fusedRaw.toFixed(2));
+  const dailyMaxContinuous = Number(dailyRaw.toFixed(2));
   const dailyMaxAnchor = maxAwareSettlementAnchor(dailyMaxContinuous);
   const dailyMax = dailyMaxAnchor;
-  const sourceSpread = spreadOf([wuDailyMaxInt, nwsDailyMax, wttrDailyMax, metNoDailyMax, weatherApiDailyMaxInt, qWeatherDailyMaxInt]);
-  const confidence =
-    sourceSpread == null ? 'low' : sourceSpread <= 1 ? 'high' : sourceSpread <= 2.5 ? 'medium' : 'low';
-  const zhSourceList = [
-    `Wunderground ${wuDailyMaxInt ?? '-'}°C`,
-    `Open-Meteo(ECMWF IFS) ${openMeteoDailyMax ?? '-'}°C`,
-    nwsDailyMax != null ? `NWS(hourly) ${nwsDailyMax}°C` : null,
-    `wttr ${wttrDailyMax ?? '-'}°C`,
-    `met.no ${metNoDailyMax ?? '-'}°C`,
-    `WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C`,
-    `QWeather ${qWeatherDailyMaxInt ?? '-'}°C`
-  ].filter((x): x is string => Boolean(x)).join(' / ');
-  const enSourceList = [
-    `Wunderground ${wuDailyMaxInt ?? '-'}°C`,
-    `Open-Meteo(ECMWF IFS) ${openMeteoDailyMax ?? '-'}°C`,
-    nwsDailyMax != null ? `NWS(hourly) ${nwsDailyMax}°C` : null,
-    `wttr ${wttrDailyMax ?? '-'}°C`,
-    `met.no ${metNoDailyMax ?? '-'}°C`,
-    `WeatherAPI ${weatherApiDailyMaxInt ?? '-'}°C`,
-    `QWeather ${qWeatherDailyMaxInt ?? '-'}°C`
-  ].filter((x): x is string => Boolean(x)).join(' / ');
+  const sourceSpread = null;
+  const confidence = wuDailyMaxInt != null ? 'high' : 'medium';
+  const zhSourceList = `Wunderground 目标日最高温 ${wuDailyMaxInt ?? '-'}°C`;
+  const enSourceList = `Wunderground target-day max ${wuDailyMaxInt ?? '-'}°C`;
 
   const settlementContext = (rawMeta as {
     settlementContext?: {
@@ -1504,20 +1080,20 @@ async function buildAssistFromTargetDay(
         taf: aviationTaf
       },
       learnedPeakWindow: wuPeakWindow,
-      peakHourLocal: hourOf(peak.time),
+      peakHourLocal: wuPeakWindow?.medianHour ?? hourOf(new Date()),
       dailyMaxForecast: dailyMax,
       dailyMaxForecastContinuous: dailyMaxContinuous,
       dailyMaxForecastAnchor: dailyMaxAnchor,
-      dailyMinForecast: mergedRows.length ? Math.min(...mergedRows.map((r) => r.temp)) : null,
+      dailyMinForecast: null,
       sourceDailyMax: {
         wundergroundDaily: wuDailyMaxInt,
-        openMeteo: openMeteoDailyMax,
-        nwsHourly: nwsDailyMax,
-        wttr: wttrDailyMax,
-        metNo: metNoDailyMax,
-        weatherApi: weatherApiDailyMaxInt,
-        qWeather: qWeatherDailyMaxInt,
-        cmaChina: qWeatherDailyMaxInt,
+        openMeteo: null,
+        nwsHourly: null,
+        wttr: null,
+        metNo: null,
+        weatherApi: null,
+        qWeather: null,
+        cmaChina: null,
         fused: dailyMax,
         fusedContinuous: dailyMaxContinuous,
         fusedAnchor: dailyMaxAnchor,
@@ -1544,37 +1120,28 @@ async function buildAssistFromTargetDay(
       },
       sourceHealth: sourceHealth,
       forecastExplain: {
-        method: fusionOutput ? 'weighted_fusion' : 'median_of_sources',
+        method: 'wu_primary_with_aviation_short_term',
         confidence,
-        weightBreakdown: fusionOutput
-          ? fusionOutput.sourceBreakdown.map((s) => ({
-              source: s.sourceName,
-              sourceKind: s.sourceKind,
-              raw: Number(s.rawPredictedMaxTemp.toFixed(2)),
-              adjusted: Number(s.adjustedPredictedMaxTemp.toFixed(2)),
-              weight: Number((s.finalWeight * 100).toFixed(2)),
-              baseSourceWeight: s.baseSourceWeight ?? 1,
-              matchScore: s.matchScore,
-              accuracyScore: s.accuracyScore,
-              scenarioScore: s.scenarioScore,
-              regimeScore: s.regimeScore ?? 1,
-              freshnessScore: s.freshnessScore ?? 1,
-              healthScore: s.healthScore ?? 1,
-              healthStatus: s.healthStatus ?? 'healthy'
-            }))
-          : [],
-        outcomeProbabilities: fusionOutput
-          ? fusionOutput.outcomeProbabilities.map((o) => ({
-              label: o.label,
-              probability: Number(o.probability.toFixed(6))
-            }))
-          : [],
-        zh: fusionOutput
-          ? `目标日最高温采用加权融合：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。${fusionOutput.explanation}${degradedNoteZh ? ` ${degradedNoteZh}` : ''}`
-          : `目标日最高温由多源日高温预测融合得到：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。源间分歧 ${sourceSpread?.toFixed(1) ?? '-'}°C，置信度 ${confidence === 'high' ? '高' : confidence === 'medium' ? '中' : '低'}。${degradedNoteZh}`,
-        en: fusionOutput
-          ? `Target-day max temperature uses weighted fusion: ${enSourceList}, fused continuous value ${dailyMaxContinuous}°C and settlement anchor ${dailyMaxAnchor}°C. Cross-source spread ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence ${confidence}. ${fusionOutput.explanation}${degradedNoteEn ? ` ${degradedNoteEn}` : ''}`
-          : `Target-day max temperature is fused from multiple source daily highs: ${enSourceList}. Continuous fused value is ${dailyMaxContinuous}°C with settlement anchor ${dailyMaxAnchor}°C. Cross-source spread is ${sourceSpread?.toFixed(1) ?? '-'}°C, confidence is ${confidence}. ${degradedNoteEn}`
+        weightBreakdown: wuDailyMax != null ? [
+          {
+            source: 'wunderground_daily',
+            sourceKind: 'settlement',
+            raw: Number(wuDailyMax.toFixed(2)),
+            adjusted: Number(wuDailyMax.toFixed(2)),
+            weight: 100,
+            baseSourceWeight: 1.4,
+            matchScore: 1,
+            accuracyScore: 1,
+            scenarioScore: 1,
+            regimeScore: 1,
+            freshnessScore: 1,
+            healthScore: 1,
+            healthStatus: sourceHealth.wunderground_daily?.status ?? 'healthy'
+          }
+        ] : [],
+        outcomeProbabilities: [],
+        zh: `目标日最高温采用主源口径：${zhSourceList}，连续融合值 ${dailyMaxContinuous}°C，结算锚点 ${dailyMaxAnchor}°C。短临窗口（未来1~12h）仅用于约束与风控，来源为 WU futureHours，并由 AviationWeather(METAR/TAF) 补充实时观测上下文。${degradedNoteZh}`,
+        en: `Target-day max temperature uses settlement-primary mode: ${enSourceList}, fused continuous value ${dailyMaxContinuous}°C and settlement anchor ${dailyMaxAnchor}°C. Short-term window (next 1-12h) is used only for constraints/risk control from WU futureHours, with AviationWeather (METAR/TAF) as realtime context assist. ${degradedNoteEn}`
       }
     }
   };

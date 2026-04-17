@@ -38,3 +38,33 @@ test('stage1 narrow interval: lower=13.9 and upper=14.0 should concentrate mass 
   assert.ok(Object.values(result.debugSummary.integerProbabilities).every((x) => Number.isFinite(x) && x >= 0));
 });
 
+test('L/U invariant should be valid for normal bounds', () => {
+  const result = runProbabilityEngine({
+    mu: 13,
+    sigma: 1.2,
+    minTemp: 8,
+    maxTemp: 20,
+    minContinuous: 12,
+    maxContinuous: 14,
+    minAllowedInteger: 12,
+    maxAllowedInteger: 14,
+    binLabels: ['<=11°C', '12°C', '13°C', '14°C', '15°C', '>=16°C']
+  });
+  assert.equal(result.debugSummary.luInvariant.isValid, true);
+  assert.equal(result.debugSummary.luInvariant.issues.length, 0);
+});
+
+test('L/U invariant should report inverted continuous bounds', () => {
+  const result = runProbabilityEngine({
+    mu: 13,
+    sigma: 1.2,
+    minTemp: 8,
+    maxTemp: 20,
+    minContinuous: 14.2,
+    maxContinuous: 13.8,
+    binLabels: ['<=11°C', '12°C', '13°C', '14°C', '15°C', '>=16°C']
+  });
+  assert.equal(result.debugSummary.luInvariant.isValid, false);
+  assert.ok(result.debugSummary.luInvariant.issues.includes('continuous_bounds_inverted'));
+});
+

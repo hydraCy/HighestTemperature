@@ -1,0 +1,265 @@
+{
+  "meta": {
+    "locationKey": "shanghai",
+    "targetDate": "2026-03-20",
+    "timezone": "Asia/Shanghai",
+    "stationCode": "ZSPD",
+    "lat": 31.1443,
+    "lon": 121.8083,
+    "proxy": {
+      "http_proxy": "http://127.0.0.1:7890",
+      "https_proxy": "http://127.0.0.1:7890",
+      "all_proxy": "socks5://127.0.0.1:7891"
+    }
+  },
+  "summary": [
+    {
+      "source": "wunderground_page_key_extract",
+      "attempts": 1,
+      "okCount": 1,
+      "status": "ok",
+      "lastHttp": 200,
+      "lastFailureCategory": null,
+      "lastReason": null
+    },
+    {
+      "source": "wunderground_nowcasting_api(key#1)",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 401,
+      "lastFailureCategory": "auth_error",
+      "lastReason": "HTTP 401"
+    },
+    {
+      "source": "wunderground_daily_api(key#1)",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 401,
+      "lastFailureCategory": "auth_error",
+      "lastReason": "HTTP 401"
+    },
+    {
+      "source": "wunderground_30d_api(key#1)",
+      "attempts": 1,
+      "okCount": 0,
+      "status": "failed",
+      "lastHttp": 401,
+      "lastFailureCategory": "auth_error",
+      "lastReason": "HTTP 401"
+    },
+    {
+      "source": "wunderground_nowcasting_api(key#2)",
+      "attempts": 1,
+      "okCount": 1,
+      "status": "ok",
+      "lastHttp": 200,
+      "lastFailureCategory": null,
+      "lastReason": null
+    },
+    {
+      "source": "wunderground_daily_api(key#2)",
+      "attempts": 1,
+      "okCount": 1,
+      "status": "ok",
+      "lastHttp": 200,
+      "lastFailureCategory": null,
+      "lastReason": null
+    },
+    {
+      "source": "wunderground_30d_api(key#2)",
+      "attempts": 1,
+      "okCount": 1,
+      "status": "ok",
+      "lastHttp": 200,
+      "lastFailureCategory": null,
+      "lastReason": null
+    },
+    {
+      "source": "wttr",
+      "attempts": 4,
+      "okCount": 4,
+      "status": "ok",
+      "lastHttp": 200,
+      "lastFailureCategory": null,
+      "lastReason": null
+    }
+  ],
+  "details": [
+    {
+      "source": "wunderground_page_key_extract",
+      "url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD/date/2026-03-20",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [],
+      "bodyPreview": "<!DOCTYPE html><html lang=\"en\" itemscope itemtype=\"http://schema.org/Organization\" prefix=\"og: http://ogp.me/ns#\" data-beasties-container><head itemscope itemtype=\"http://schema.org/WebSite\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n  <meta charset=\"utf-8\">\n  <title>Shanghai, People's Republic Of China Weather History | Weather Underground</title>\n  <base href=\"/\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <meta http-equiv=\"X-UA-Compatibl",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wunderground_nowcasting_api(key#1)",
+      "url": "https://api.weather.com/v3/wx/observations/current?geocode=31.1443,121.8083&units=m&language=en-US&format=json&apiKey=***",
+      "method": "GET",
+      "httpStatus": 401,
+      "parserKeys": [],
+      "bodyPreview": "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;api&#46;weather&#46;com&#47;v3&#47;wx&#47;observations&#47;current&#63;\" on this server.<P>\nReference&#32;&#35;18&#46;884c1002&#46;1773978024&#46;97015b0b\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;884c1002&#46;1773978024&#46;97015b0b</P>\n</BODY>\n</HTML>\n",
+      "failureCategory": "auth_error",
+      "ok": false,
+      "reason": "HTTP 401"
+    },
+    {
+      "source": "wunderground_daily_api(key#1)",
+      "url": "https://api.weather.com/v3/wx/forecast/daily/5day?geocode=31.1443,121.8083&units=m&language=en-US&format=json&apiKey=***",
+      "method": "GET",
+      "httpStatus": 401,
+      "parserKeys": [],
+      "bodyPreview": "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;api&#46;weather&#46;com&#47;v3&#47;wx&#47;forecast&#47;daily&#47;5day&#63;\" on this server.<P>\nReference&#32;&#35;18&#46;ed77d917&#46;1773978025&#46;6be14d75\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;ed77d917&#46;1773978025&#46;6be14d75</P>\n</BODY>\n</HTML>\n",
+      "failureCategory": "auth_error",
+      "ok": false,
+      "reason": "HTTP 401"
+    },
+    {
+      "source": "wunderground_30d_api(key#1)",
+      "url": "https://api.weather.com/v1/geocode/31.1443/121.8083/observations/historical.json?apiKey=***&units=m&startDate=20260320&endDate=20260320",
+      "method": "GET",
+      "httpStatus": 401,
+      "parserKeys": [],
+      "bodyPreview": "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;api&#46;weather&#46;com&#47;v1&#47;geocode&#47;31&#46;1443&#47;121&#46;8083&#47;observations&#47;historical&#46;json&#63;\" on this server.<P>\nReference&#32;&#35;18&#46;ea77d917&#46;1773978027&#46;285d4f05\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;ea77d917&#46;1773978027&#46;285d4f05</P>\n</BODY>\n</HTML>\n",
+      "failureCategory": "auth_error",
+      "ok": false,
+      "reason": "HTTP 401"
+    },
+    {
+      "source": "wunderground_nowcasting_api(key#2)",
+      "url": "https://api.weather.com/v3/wx/observations/current?geocode=31.1443,121.8083&units=m&language=en-US&format=json&apiKey=***",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "cloudCeiling",
+        "cloudCover",
+        "cloudCoverPhrase",
+        "dayOfWeek",
+        "dayOrNight",
+        "expirationTimeUtc",
+        "iconCode",
+        "iconCodeExtend",
+        "obsQualifierCode",
+        "obsQualifierSeverity",
+        "precip1Hour",
+        "precip6Hour",
+        "precip24Hour",
+        "pressureAltimeter",
+        "pressureChange",
+        "pressureMeanSeaLevel",
+        "pressureTendencyCode",
+        "pressureTendencyTrend",
+        "relativeHumidity",
+        "snow1Hour"
+      ],
+      "bodyPreview": "{\"cloudCeiling\":null,\"cloudCover\":30,\"cloudCoverPhrase\":\"Partly Cloudy\",\"dayOfWeek\":\"Friday\",\"dayOrNight\":\"D\",\"expirationTimeUtc\":1773978298,\"iconCode\":34,\"iconCodeExtend\":3400,\"obsQualifierCode\":null,\"obsQualifierSeverity\":null,\"precip1Hour\":0,\"precip6Hour\":0,\"precip24Hour\":0,\"pressureAltimeter\":1022.01,\"pressureChange\":0.34,\"pressureMeanSeaLevel\":1022.1,\"pressureTendencyCode\":1,\"pressureTendencyTrend\":\"Rising\",\"relativeHumidity\":49,\"snow1Hour\":0,\"snow6Hour\":0,\"snow24Hour\":0,\"sunriseTimeLocal\":",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wunderground_daily_api(key#2)",
+      "url": "https://api.weather.com/v3/wx/forecast/daily/5day?geocode=31.1443,121.8083&units=m&language=en-US&format=json&apiKey=***",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "calendarDayTemperatureMax",
+        "calendarDayTemperatureMin",
+        "dayOfWeek",
+        "expirationTimeUtc",
+        "moonPhase",
+        "moonPhaseCode",
+        "moonPhaseDay",
+        "moonriseTimeLocal",
+        "moonriseTimeUtc",
+        "moonsetTimeLocal",
+        "moonsetTimeUtc",
+        "narrative",
+        "qpf",
+        "qpfIce",
+        "qpfRain",
+        "qpfSnow",
+        "sunriseTimeLocal",
+        "sunriseTimeUtc",
+        "sunsetTimeLocal",
+        "sunsetTimeUtc"
+      ],
+      "bodyPreview": "{\"calendarDayTemperatureMax\":[14,15,17,14,13,15],\"calendarDayTemperatureMin\":[6,7,10,10,10,10],\"dayOfWeek\":[\"Friday\",\"Saturday\",\"Sunday\",\"Monday\",\"Tuesday\",\"Wednesday\"],\"expirationTimeUtc\":[1773979352,1773979352,1773979352,1773979352,1773979352,1773979352],\"moonPhase\":[\"Waxing Crescent\",\"Waxing Crescent\",\"Waxing Crescent\",\"Waxing Crescent\",\"Waxing Crescent\",\"First Quarter\"],\"moonPhaseCode\":[\"WXC\",\"WXC\",\"WXC\",\"WXC\",\"WXC\",\"FQ\"],\"moonPhaseDay\":[1,2,3,4,5,7],\"moonriseTimeLocal\":[\"2026-03-20T06:21:57",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wunderground_30d_api(key#2)",
+      "url": "https://api.weather.com/v1/geocode/31.1443/121.8083/observations/historical.json?apiKey=***&units=m&startDate=20260320&endDate=20260320",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "metadata",
+        "observations"
+      ],
+      "bodyPreview": "{\"metadata\":{\"language\":\"en-US\",\"transaction_id\":\"1773978032595:14d373adf48f44ea87874669d2c2786b\",\"version\":\"1\",\"latitude\":31.14,\"longitude\":121.8,\"units\":\"m\",\"expire_time_gmt\":1773981632,\"status_code\":200},\"observations\":[{\"key\":\"ZSPD\",\"class\":\"observation\",\"expire_time_gmt\":1773943200,\"obs_id\":\"ZSPD\",\"obs_name\":\"Shanghai/Pudong\",\"valid_time_gmt\":1773936000,\"day_ind\":\"N\",\"temp\":8,\"wx_icon\":33,\"icon_extd\":3300,\"wx_phrase\":\"Fair\",\"pressure_tend\":null,\"pressure_desc\":null,\"dewPt\":3,\"heat_index\":8,",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/ZSPD?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.14 and Lon 121.80\"}],\"current_condition\":[{\"observation_time\":\"03:40 AM\",\"localObsDateTime\":\"2026-03-20 11:40 AM\",\"temp_C\":\"15\",\"temp_F\":\"59\",\"weatherCode\":\"113\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0001_sunny.png\"}],\"weatherDesc\":[{\"value\":\"Sunny\"}],\"windspeedMiles\":\"6\",\"windspeedKmph\":\"9\",\"winddirDegree\":\"76\",\"winddir16Point\":\"ENE\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0\",\"humidity\":\"41",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/~31.1443,121.8083?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.15 and Lon 121.00\"}],\"current_condition\":[{\"observation_time\":\"03:23 AM\",\"localObsDateTime\":\"2026-03-20 11:23 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"116\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0002_sunny_intervals.png\"}],\"weatherDesc\":[{\"value\":\"Partly cloudy\"}],\"windspeedMiles\":\"4\",\"windspeedKmph\":\"6\",\"winddirDegree\":\"85\",\"winddir16Point\":\"E\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/31.1443,121.8083?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.15 and Lon 121.00\"}],\"current_condition\":[{\"observation_time\":\"03:23 AM\",\"localObsDateTime\":\"2026-03-20 11:23 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"116\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0002_sunny_intervals.png\"}],\"weatherDesc\":[{\"value\":\"Partly cloudy\"}],\"windspeedMiles\":\"4\",\"windspeedKmph\":\"6\",\"winddirDegree\":\"85\",\"winddir16Point\":\"E\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    },
+    {
+      "source": "wttr",
+      "url": "https://wttr.in/Shanghai?format=j1",
+      "method": "GET",
+      "httpStatus": 200,
+      "parserKeys": [
+        "data"
+      ],
+      "bodyPreview": "{\"data\":{\"request\":[{\"type\":\"LatLon\",\"query\":\"Lat 31.23 and Lon 121.49\"}],\"current_condition\":[{\"observation_time\":\"03:03 AM\",\"localObsDateTime\":\"2026-03-20 11:03 AM\",\"temp_C\":\"15\",\"temp_F\":\"60\",\"weatherCode\":\"113\",\"weatherIconUrl\":[{\"value\":\"https://cdn.worldweatheronline.com/images/wsymbols01_png_64/wsymbol_0001_sunny.png\"}],\"weatherDesc\":[{\"value\":\"Sunny\"}],\"windspeedMiles\":\"6\",\"windspeedKmph\":\"9\",\"winddirDegree\":\"76\",\"winddir16Point\":\"ENE\",\"precipMM\":\"0.0\",\"precipInches\":\"0.0\",\"humidity\":\"44",
+      "failureCategory": null,
+      "ok": true,
+      "reason": null
+    }
+  ]
+}
